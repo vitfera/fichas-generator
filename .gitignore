@@ -1,0 +1,17 @@
+# Node modules
+node_modules/
+
+# Output PDFs
+output/
+
+# Arquivos de ambiente
+.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker build artefacts
+.DS_Store
+*.log

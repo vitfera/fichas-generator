@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  fichas-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fichas-generator
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    volumes:
+      # Mapeia a pasta de saída local para OUTPUT_DIR dentro do container
+      - ./output:/usr/src/app/output
+      # Mapeia a pasta de assets (logo.png) para dentro do container
+      - ./assets:/usr/src/app/assets
+      # Mapeia a pasta de templates para dentro do container
+      - ./templates:/usr/src/app/templates
+
+    ports:
+      - "4444:4444"
+
+# Se quiser adicionar um Postgres local para testes, descomente o bloco abaixo e ajuste .env:
+#  db:
+#    image: postgres:14
+#    restart: unless-stopped
+#    environment:
+#      POSTGRES_USER: mapas
+#      POSTGRES_PASSWORD: mapas
+#      POSTGRES_DB: mapas
+#    volumes:
+#      - pgdata:/var/lib/postgresql/data
+#    ports:
+#      - "5432:5432"
+
+#volumes:
+#  pgdata:
+#    driver: local

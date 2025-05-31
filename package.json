@@ -1,0 +1,17 @@
+{
+  "name": "fichas-generator",
+  "version": "1.0.0",
+  "description": "Serviço para gerar fichas de inscrição em PDF a partir do banco Mapas",
+  "main": "generate_sheets.js",
+  "scripts": {
+    "generate": "node generate_sheets.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.3",
+    "express": "^4.18.2",
+    "handlebars": "^4.7.7",
+    "pg": "^8.8.0",
+    "puppeteer": "^22.8.2",
+    "archiver": "^5.3.1"
+  }
+}

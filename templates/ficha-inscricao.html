@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Ficha de Inscrição – {{registration_id}}</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 1cm;
+      }
+      .logo {
+        text-align: center;
+        margin-bottom: 16px;
+      }
+      .logo img {
+        max-height: 60px;
+      }
+      h1 {
+        font-size: 18px;
+        text-align: center;
+        margin-bottom: 12px;
+      }
+      .section-title {
+        font-size: 14px;
+        margin-top: 16px;
+        margin-bottom: 8px;
+        font-weight: bold;
+        border-bottom: 1px solid #333;
+        padding-bottom: 4px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 12px;
+      }
+      table td {
+        padding: 6px;
+        vertical-align: top;
+        border: 1px solid #ccc;
+      }
+      .label {
+        font-weight: bold;
+        width: 35%;
+      }
+      .value {
+        width: 65%;
+      }
+      footer {
+        position: fixed;
+        bottom: 1cm;
+        width: 100%;
+        text-align: center;
+        font-size: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Exibe o logo -->
+    <div class="logo">
+      <img src="file://{{assetPath}}/logo.png" alt="Logo" />
+    </div>
+
+    <h1>FICHA DE INSCRIÇÃO – OPORTUNIDADE {{opportunity_id}}</h1>
+
+    <!-- Cabeçalho com ID da inscrição e nome do projeto -->
+    <p>
+      <strong>ID INSCRIÇÃO:</strong> {{registration_id}}<br />
+      <strong>PROJETO:</strong> {{project_name}}
+    </p>
+
+    <!-- DADOS DO AGENTE CULTURAL -->
+    <div class="section-title">DADOS DO AGENTE CULTURAL</div>
+    <table>
+      <tr>
+        <td class="label">Nome do Agente</td>
+        <td class="value">{{agent.name}}</td>
+      </tr>
+      <!-- Se quiser exibir outros dados fixos, adicione aqui -->
+    </table>
+
+    <!-- DADOS DE MAPEAMENTO (campos dinâmicos) -->
+    <div class="section-title">DADOS DE MAPEAMENTO</div>
+    <table>
+      {{#each mappingFields}}
+        <tr>
+          <td class="label">{{this.label}}</td>
+          <td class="value">{{this.value}}</td>
+        </tr>
+      {{/each}}
+    </table>
+
+    <!-- DADOS DO PROJETO (campo específico “Descrição do Projeto”) -->
+    <div class="section-title">DADOS DO PROJETO</div>
+    <table>
+      <tr>
+        <td class="label">Descrição do Projeto</td>
+        <!-- Usa o helper “get” para extrair a chave com acento e espaço -->
+        <td class="value">{{get metaFields "Descrição do Projeto"}}</td>
+      </tr>
+      <!-- Se quiser exibir outros campos fixos, repita o padrão: -->
+      <!--
+      <tr>
+        <td class="label">Outro Campo</td>
+        <td class="value">{{get metaFields "Outro Rótulo"}}</td>
+      </tr>
+      -->
+    </table>
+
+    <footer>
+      Página <span class="pageNumber"></span> de <span class="totalPages"></span>
+    </footer>
+  </body>
+</html>
