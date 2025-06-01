@@ -4,16 +4,13 @@
  * Serviço HTTP para gerar fichas de inscrição em PDF de uma oportunidade pai
  * incluindo todas as suas fases-filhas (exceto “Publicação final do resultado”).
  * Os campos em cada fase são listados segundo o display_order, e valores
- * que forem arrays JSON são formatados para exibição legível.
+ * que forem arrays JSON são formatados para exibição legível, assim como datas
+ * "YYYY-MM-DD" são convertidas para "DD/MM/YYYY". O logo é embutido como Base64
+ * para não depender de file:// no Puppeteer.
  *
- * Passos:
- *   1) GET  /        → lista apenas as oportunidades‐pai (parent_id IS NULL).
- *   2) POST /generate → recebe parentId, identifica “primeira fase filha” (menor ID > parentId,
- *                      ignorando parentId+1), busca inscrições dessa fase, e para cada inscrição:
- *                      a) lê previousPhaseRegistrationId para achar inscrição-pai,
- *                      b) busca meta (campo + valor) do pai e filhos, ordenado,
- *                      c) transforma valores JSON-array em texto com quebras de linha,
- *                      d) gera PDF + ZIP.
+ * URLs suportadas:
+ *   GET  /         → exibe formulário de seleção de oportunidade e logo com Bootstrap
+ *   POST /generate → gera os PDFs, empacota em ZIP, e exibe página de resultado
  *
  * Antes de executar, crie .env contendo:
  *   DB_HOST=localhost
@@ -26,18 +23,18 @@
  *
  * Garanta também que existam:
  *   - ./assets/logo.png
- *   - ./templates/ficha-inscricao.html (o template Handlebars abaixo)
+ *   - ./templates/ficha-inscricao.html
  *   - ./output (pasta para arquivos gerados)
  */
 
 require('dotenv').config();
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const { Pool } = require('pg');
+const express    = require('express');
+const path       = require('path');
+const fs         = require('fs');
+const { Pool }   = require('pg');
 const Handlebars = require('handlebars');
-const puppeteer = require('puppeteer-core');
-const archiver  = require('archiver');
+const puppeteer  = require('puppeteer-core');
+const archiver   = require('archiver');
 
 // ------------------------------------------------------------
 // 1) Configuração do banco a partir do .env
@@ -59,7 +56,7 @@ const pool = new Pool({
 });
 
 // ------------------------------------------------------------
-// 2) Helpers Handlebars
+// 2) Helpers Handlebars (para o template PDF)
 // ------------------------------------------------------------
 Handlebars.registerHelper('get', (obj, key) => {
   return (obj && obj[key] !== undefined) ? obj[key] : '';
@@ -75,18 +72,18 @@ Handlebars.registerHelper('lookup', (obj, field) => {
 });
 
 // ------------------------------------------------------------
-// 3) Carrega e compila o template
+// 3) Carrega e compila o template PDF (ficha-inscricao.html)
 // ------------------------------------------------------------
 const templatePath = path.join(__dirname, 'templates', 'ficha-inscricao.html');
 if (!fs.existsSync(templatePath)) {
-  console.error(`Template não encontrado em ${templatePath}`);
+  console.error(`Template PDF não encontrado em ${templatePath}`);
   process.exit(1);
 }
 const templateSource = fs.readFileSync(templatePath, 'utf-8');
 const template       = Handlebars.compile(templateSource);
 
 // ------------------------------------------------------------
-// 4) Caminho do logo
+// 4) Lê o logo.png e converte para Base64 (para permitir <img data:…>)
 // ------------------------------------------------------------
 const assetPath = path.join(__dirname, 'assets');
 let logoBase64 = '';
@@ -95,7 +92,7 @@ try {
   logoBase64 = logoBuffer.toString('base64');
 } catch (err) {
   console.warn('Atenção: não foi possível ler assets/logo.png para incorporar no PDF.');
-  // logoBase64 fica vazio → o template exibirá vazio
+  // logoBase64 ficará vazio → template exibirá vazio se não houver logo
 }
 
 // ------------------------------------------------------------
@@ -106,7 +103,6 @@ function formatValue(raw) {
 
   // 5.1) Se for string no formato YYYY-MM-DD, converte para DD/MM/YYYY
   if (typeof raw === 'string') {
-    // Regex simples: 4 dígitos-2 dígitos-2 dígitos (não contempla horário)
     const isoDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (isoDateMatch) {
       const [, year, month, day] = isoDateMatch;
@@ -114,7 +110,7 @@ function formatValue(raw) {
     }
   }
 
-  // 5.2) Se quiser tratar datetimes (YYYY-MM-DDTHH:MM:SSZ), podemos estender:
+  // 5.2) Se for string no formato YYYY-MM-DDTHH:MM:SSZ, converte para "DD/MM/YYYY HH:MM:SS"
   const isoDateTimeMatch = typeof raw === 'string'
     ? raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})/)
     : null;
@@ -403,7 +399,7 @@ async function generateFichas(parentId) {
       }
     });
 
-    // 8.5.5) Monta objeto “data” e inclue logoBase64
+    // 8.5.5) Monta objeto “data” e inclui logoBase64
     const data = {
       registration_number: regNumber,
       agent: {
@@ -468,7 +464,7 @@ async function generateFichas(parentId) {
 }
 
 // ------------------------------------------------------------
-// Configuração do Express
+// 9) Configuração do Express
 // ------------------------------------------------------------
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -478,6 +474,7 @@ app.use('/downloads', express.static(OUTPUT_DIR));
 
 ////////////////////////////////////////////////////////////////////////////////
 // GET / → formulário com <select> apenas de oportunidades-pai
+//          + Bootstrap + logo centralizada + loading button
 ////////////////////////////////////////////////////////////////////////////////
 app.get('/', async (req, res) => {
   let parents = [];
@@ -487,26 +484,99 @@ app.get('/', async (req, res) => {
     console.error('Erro ao buscar oportunidades-pai:', err);
   }
 
+  // Monta as <option> com todas as oportunidades-pai
   const optionsHtml = parents
     .map(row => `<option value="${row.id}">${row.name}</option>`)
     .join('\n');
 
+  // Monta HTML usando Bootstrap 5 (CDN). No topo, logo centralizada.
+  // Quando o usuário clicar em "Gerar Fichas", exibimos um spinner e desabilitamos o botão.
   const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Gerar Fichas de Inscrição</title>
+    <!-- Bootstrap CSS v5.3 (CDN) -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-9ndCyUa1zY3nWD0gqP7B7mYyt0ea3Q2Ua4H9z7NL0v5uyI6oBkP6eJzIvzhP1hxd"
+      crossorigin="anonymous"
+    />
+    <style>
+      body {
+        padding-top: 40px;
+        background-color: #f8f9fa;
+      }
+      .logo-container {
+        margin-bottom: 30px;
+      }
+      .logo-container img {
+        max-height: 80px;
+      }
+      #loadingSpinner {
+        display: none;
+      }
+    </style>
   </head>
-  <body>
-    <h1>Gerar Fichas de Inscrição</h1>
-    <form action="/generate" method="POST">
-      <label for="parent">Escolha a oportunidade principal:</label><br/>
-      <select name="parent" id="parent" required>
-        ${optionsHtml}
-      </select>
-      <br/><button type="submit">Gerar Fichas</button>
-    </form>
+  <body class="bg-light">
+    <div class="container">
+
+      <!-- Logo centralizada no topo -->
+      <div class="row mb-4">
+        <div class="col text-center logo-container">
+          ${
+            logoBase64
+              ? `<img src="data:image/png;base64,${logoBase64}" alt="Logo">`
+              : ``
+          }
+        </div>
+      </div>
+
+      <div class="row justify-content-center">
+        <div class="col-md-6">
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <h5 class="card-title text-center mb-4">Gerar Fichas de Inscrição</h5>
+              <form id="formGenerate" action="/generate" method="POST">
+                <div class="mb-3">
+                  <label for="parent" class="form-label">Escolha a oportunidade principal:</label>
+                  <select name="parent" id="parent" class="form-select" required>
+                    <option value="" disabled selected>-- selecione --</option>
+                    ${optionsHtml}
+                  </select>
+                </div>
+                <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
+                  <span id="btnText">Gerar Fichas</span>
+                  <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bootstrap JS v5.3 (bundle com Popper) e script de loading -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-HoA5lDhr+tr1EBbk1nk4avourmQw519JfVLnLYhuwYSp7mKozZqDaVqGm2fZbuYj"
+      crossorigin="anonymous"
+    ></script>
+    <script>
+      const form = document.getElementById('formGenerate');
+      const btnSubmit = document.getElementById('btnSubmit');
+      const btnText = document.getElementById('btnText');
+      const loadingSpinner = document.getElementById('loadingSpinner');
+
+      form.addEventListener('submit', () => {
+        btnSubmit.disabled = true;
+        btnText.textContent = 'Gerando...';
+        loadingSpinner.style.display = 'inline-block';
+      });
+    </script>
   </body>
 </html>
   `.trim();
@@ -516,6 +586,7 @@ app.get('/', async (req, res) => {
 
 ////////////////////////////////////////////////////////////////////////////////
 // POST /generate → gera as fichas para o parentId selecionado
+//                  → exibe página de resultado com botão download ZIP e lista PDFs
 ////////////////////////////////////////////////////////////////////////////////
 app.post('/generate', async (req, res) => {
   const parentId = parseInt(req.body.parent, 10);
@@ -523,34 +594,124 @@ app.post('/generate', async (req, res) => {
     return res.status(400).send('Oportunidade inválida.');
   }
 
+  let zipFilename;
   try {
-    const zipFilename = await generateFichas(parentId);
-    const html = `
+    zipFilename = await generateFichas(parentId);
+  } catch (err) {
+    console.error('Erro ao gerar fichas:', err);
+    return res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');
+  }
+
+  // Depois que o ZIP foi gerado, listamos todos os PDFs correspondentes:
+  let pdfFiles = [];
+  try {
+    pdfFiles = fs.readdirSync(OUTPUT_DIR).filter(fname => {
+      return (
+        fname.startsWith(`ficha_${parentId}_`) &&
+        fname.toLowerCase().endsWith('.pdf')
+      );
+    });
+    pdfFiles.sort();
+  } catch (err) {
+    console.error('Erro ao listar PDFs gerados:', err);
+  }
+
+  // Monta lista de links para cada PDF
+  const listPdfHtml = pdfFiles
+    .map(fname => {
+      return `
+      <li class="list-group-item">
+        <a href="/downloads/${fname}" target="_blank">${fname}</a>
+      </li>`;
+    })
+    .join('\n');
+
+  // Página de resultado: logo + botão de download do ZIP + lista de todos os PDFs
+  const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Fichas Geradas</title>
+    <!-- Bootstrap CSS v5.3 (CDN) -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-9ndCyUa1zY3nWD0gqP7B7mYyt0ea3Q2Ua4H9z7NL0v5uyI6oBkP6eJzIvzhP1hxd"
+      crossorigin="anonymous"
+    />
+    <style>
+      body {
+        padding-top: 40px;
+        background-color: #f8f9fa;
+      }
+      .logo-container {
+        margin-bottom: 30px;
+      }
+      .logo-container img {
+        max-height: 80px;
+      }
+    </style>
   </head>
-  <body>
-    <h1>Fichas geradas para oportunidade ${parentId}</h1>
-    <p>
-      <a href="/downloads/${zipFilename}" download>
-        Baixar todas as fichas (ZIP)
-      </a>
-    </p>
-    <p><a href="/">Voltar</a></p>
+  <body class="bg-light">
+    <div class="container">
+
+      <!-- Logo centralizada -->
+      <div class="row mb-4">
+        <div class="col text-center logo-container">
+          ${
+            logoBase64
+              ? `<img src="data:image/png;base64,${logoBase64}" alt="Logo">`
+              : ``
+          }
+        </div>
+      </div>
+
+      <div class="row justify-content-center">
+        <div class="col-md-8">
+          <div class="card shadow-sm mb-4">
+            <div class="card-body text-center">
+              <h5 class="card-title mb-3">Fichas geradas para oportunidade ${parentId}</h5>
+              <a href="/downloads/${zipFilename}" class="btn btn-success me-2">
+                Baixar todas as fichas (ZIP)
+              </a>
+              <a href="/" class="btn btn-secondary">← Voltar</a>
+            </div>
+          </div>
+
+          <div class="card shadow-sm">
+            <div class="card-header">
+              <strong>Lista de PDFs gerados:</strong>
+            </div>
+            <ul class="list-group list-group-flush">
+              ${listPdfHtml || `<li class="list-group-item"><em>Nenhum PDF encontrado.</em></li>`}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Bootstrap JS v5.3 (Bundle com Popper) e ícones Bootstrap Icons (CDN) -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-HoA5lDhr+tr1EBbk1nk4avourmQw519JfVLnLYhuwYSp7mKozZqDaVqGm2fZbuYj"
+      crossorigin="anonymous"
+    ></script>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
+    />
   </body>
 </html>
-    `.trim();
-    res.send(html);
-  } catch (err) {
-    console.error('Erro ao gerar fichas:', err);
-    res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');
-  }
+  `.trim();
+
+  res.send(html);
 });
 
-// 9) Inicia servidor HTTP
+// ------------------------------------------------------------
+// 10) Inicia servidor HTTP
+// ------------------------------------------------------------
 app.listen(SERVER_PORT, () => {
   console.log(`Servidor rodando na porta ${SERVER_PORT}`);
   console.log(`Acesse http://localhost:${SERVER_PORT}/ para gerar fichas.`);
