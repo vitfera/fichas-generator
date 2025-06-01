@@ -3,6 +3,8 @@
  *
  * Serviço HTTP para gerar fichas de inscrição em PDF de uma oportunidade pai
  * incluindo todas as suas fases-filhas (exceto “Publicação final do resultado”).
+ * Os campos em cada fase são listados segundo o display_order da tabela
+ * registration_field_configuration.
  *
  * Passos:
  *   1) GET  /        → lista apenas as oportunidades‐pai (parent_id IS NULL).
@@ -11,12 +13,12 @@
  *                      a) lê a chave previousPhaseRegistrationId para achar a inscrição-pai,
  *                         então busca meta para a fase-pai (phaseId = parentId);
  *                      b) busca meta para a própria inscrição (phaseId = firstPhaseId);
- *                      c) (opcional) busca meta para fases-filhas posteriores (phaseId > firstPhaseId),
+ *                      c) busca meta para fases-filhas posteriores (phaseId > firstPhaseId),
  *                         se existirem e forem relevantes;
  *                      d) monta os blocos “pai” + “filhos” e gera PDF+ZIP.
  *
- * No template, o primeiro bloco (pai) será exibido como “Fase de inscrições” (título fixo),
- * e os demais blocos exibirão “FASE: <nome real>”.
+ * As respostas da tabela registration_meta serão combinadas com registration_field_configuration
+ * para extrair, para cada fase, um array de objetos { label, value } ordenado por display_order.
  *
  * Antes de executar, crie .env contendo:
  *   DB_HOST=localhost
@@ -30,7 +32,7 @@
  * Garanta também que existam:
  *   - ./assets/logo.png
  *   - ./templates/ficha-inscricao.html (o template Handlebars abaixo)
- *   - ./output      (pasta para arquivos gerados)
+ *   - ./output (pasta para arquivos gerados)
  */
 
 require('dotenv').config();
@@ -42,10 +44,10 @@ const Handlebars = require('handlebars');
 const puppeteer = require('puppeteer-core');
 const archiver = require('archiver');
 
-// 1. Carrega variáveis de ambiente
-const DB_HOST = process.env.DB_HOST || 'localhost';
-const DB_PORT = parseInt(process.env.DB_PORT || '5432', 10);
-const DB_USER = process.env.DB_USER || 'mapas';
+// 1) Configuração do banco a partir do .env
+const DB_HOST     = process.env.DB_HOST     || 'localhost';
+const DB_PORT     = parseInt(process.env.DB_PORT     || '5432', 10);
+const DB_USER     = process.env.DB_USER     || 'mapas';
 const DB_PASSWORD = process.env.DB_PASSWORD || 'mapas';
 const DB_NAME     = process.env.DB_NAME     || 'mapas';
 const OUTPUT_DIR  = process.env.OUTPUT_DIR  || path.join(__dirname, 'output');
@@ -187,7 +189,6 @@ async function fetchParentRegistrationId(childRegistrationId) {
     `;
     const res = await client.query(query, [childRegistrationId]);
     if (res.rowCount === 0) return null;
-    // O campo “value” vem como texto (VARCHAR), convertemos para inteiro:
     const parentRegId = parseInt(res.rows[0].value, 10);
     return isNaN(parentRegId) ? null : parentRegId;
   } finally {
@@ -197,30 +198,44 @@ async function fetchParentRegistrationId(childRegistrationId) {
 
 // 4.7) Busca TODAS as respostas (registration_meta → registration_field_configuration)
 //      de uma inscrição específica, mas SEMPRE filtrando rm.key LIKE 'field_%'.
-//      Se “isParent” for true, usa registrationIdPai e phaseId = parentId. 
-//      Caso contrário, usa registrationIdFilho e phaseIdsFilho (array).
-async function fetchMetaForSingleRegistration(regId, phaseIds) {
-  // retorna { phaseId: { field_label: field_value, … }, … }
+//      Retorna um objeto onde each phaseId contém UM ARRAY de objetos 
+//      { label, value } ordenado por display_order.
+//      
+//    regId     → id da inscrição a ser buscada (pode ser da fase pai ou fase child)
+//    phaseIds  → array de phaseId que serão considerados (por ex. [11] ou [11,208,290])
+////////////////////////////////////////////////////////////////////////////////
+async function fetchOrderedMetaForRegistration(regId, phaseIds) {
+  // Vamos retornar { [phaseId]: [ { label, value }, … ] }
   const client = await pool.connect();
   try {
     const query = `
       SELECT
-        rfc.opportunity_id AS phase_id,
-        rfc.title          AS field_label,
-        rm.value           AS field_value
+        rfc.opportunity_id   AS phase_id,
+        rfc.title            AS field_label,
+        rfc.display_order    AS field_order,
+        rm.value             AS field_value
       FROM registration_meta rm
       JOIN registration_field_configuration rfc
         ON rm.key LIKE 'field_%'
         AND CAST(replace(rm.key, 'field_', '') AS INTEGER) = rfc.id
         AND rfc.opportunity_id = ANY($2::int[])
       WHERE rm.object_id = $1
+      ORDER BY rfc.opportunity_id, rfc.display_order;
     `;
     const res = await client.query(query, [regId, phaseIds]);
+    // O ORDER BY acima já agrupa por phase_id e depois por display_order,
+    // mas ainda precisamos organizar em array por phase_id:
     const grouped = {};
     for (const row of res.rows) {
       const pid = row.phase_id;
-      if (!grouped[pid]) grouped[pid] = {};
-      grouped[pid][row.field_label] = row.field_value;
+      if (!grouped[pid]) {
+        grouped[pid] = [];
+      }
+      grouped[pid].push({
+        label: row.field_label,
+        value: row.field_value
+        // (Já está "ordenado" porque o SELECT fez ORDER BY display_order)
+      });
     }
     return grouped;
   } finally {
@@ -229,7 +244,7 @@ async function fetchMetaForSingleRegistration(regId, phaseIds) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// 5) Converte HTML em PDF via Puppeteer/Chromium
+// 5) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
 ////////////////////////////////////////////////////////////////////////////////
 async function htmlToPdfBuffer(html) {
   // Ajuste conforme seu ambiente se o binário for diferente
@@ -257,10 +272,10 @@ async function htmlToPdfBuffer(html) {
 //      - Carrega inscrições só da firstPhaseId (child)
 //      - Para cada inscrição-child:
 //          * Lê previousPhaseRegistrationId → parentRegistrationId
-//          * Busca meta do parent (fase pai) usando parentRegistrationId + [parentId]
-//          * Busca meta do child (fase 1) etc para outras fases
+//          * Busca meta ordenado do parent (fase pai) usando parentRegistrationId + [parentId]
+//          * Busca meta ordenado do child (fase 1) e demais fases-filhas
 //          * Gera PDF + armazena lista de nomes
-//      - Empacota tudo num ZIP e devolve o nome do ZIP
+//      - Empacota tudo num ZIP e retorna o nome do ZIP
 ////////////////////////////////////////////////////////////////////////////////
 async function generateFichas(parentId) {
   // 6.1) Identifica a “primeira fase” (menor ID dentre filhos ≠ parentId+1)
@@ -269,16 +284,14 @@ async function generateFichas(parentId) {
     throw new Error(`Nenhuma fase-filho válida encontrada para parentId=${parentId}`);
   }
 
-  // 6.2) Carrega TODAS as fases relevantes: [ {id:parentId,name:…}, {id:filho1,name:…}, … ]
+  // 6.2) Carrega TODAS as fases relevantes: 
+  //     [ {id:parentId, name:…}, {id:filho1, name:…}, … ]
   const phases = await fetchAllRelevantPhases(parentId);
-  // Exemplo de phases: 
-  // [ {id:11,  name:"Trindade-GO–Edital…"}, 
-  //   {id:208, name:"Recebimento de Documentos de Habilitação"}, 
-  //   {id:290, name:"Prestação de Contas"} ]
+  // e.g. [ {id:11, name:"Pai"}, {id:208, name:"Filho1"}, {id:290, name:"Filho2"} ]
 
-  // 6.3) Busca as inscrições SÓ da dado firstPhaseId (a “fase de inscrições” na prática)
+  // 6.3) Busca as inscrições SÓ da “firstPhaseId”
   const registrations = await fetchRegistrationsForPhase(firstPhaseId);
-  // registrations = [ { registration_id:2000, registration_number:"AC429222796", agent_id:xxx, agent_name:"…" }, … ]
+  // e.g. [ { registration_id:2000, registration_number:"AC123", agent_id:45, agent_name:"Maria" }, … ]
 
   // 6.4) Garante que OUTPUT_DIR exista e cria placeholder
   if (!fs.existsSync(OUTPUT_DIR)) {
@@ -291,62 +304,61 @@ async function generateFichas(parentId) {
 
   const pdfFilenames = [];
 
-  // 6.5) Para cada inscrição da primeira fase, montamos os blocos de meta
+  // 6.5) Para cada inscrição da primeira fase (child), processa
   for (const reg of registrations) {
-    // registra o “número” como preferencial; se vier null, usa registration_id
     const regNumber = reg.registration_number || reg.registration_id;
 
-    // 6.5.1) Descobre o parentRegistrationId (se existir) lendo previousPhaseRegistrationId
+    // 6.5.1) Descobre parentRegistrationId via previousPhaseRegistrationId
     const parentRegId = await fetchParentRegistrationId(reg.registration_id);
 
-    // 6.5.2) Carrega meta do PAI (fase parentId), se parentRegId existir
-    let parentMetaFields = {};
+    // 6.5.2) Carrega meta do PAI (phaseId = parentId) se parentRegId existir
+    let parentMetaArray = [];
     if (parentRegId) {
-      // Buscar apenas os campos da fase-pai (parentId) para parentRegId
-      const obj = await fetchMetaForSingleRegistration(parentRegId, [parentId]);
-      parentMetaFields = obj[parentId] || {};
+      // obter um array de {label,value} ordenado por display_order
+      const parentGrouped = await fetchOrderedMetaForRegistration(parentRegId, [parentId]);
+      parentMetaArray = parentGrouped[parentId] || [];
     }
 
-    // 6.5.3) Carrega meta da inscrição-child (firstPhaseId) para as fases-filhas (além de parentId),
-    //          devemos englobar todos phaseIds, mas parent já coberto; 
-    //          portanto usamos TODOS os phases.map(p=>p.id) exceto parentId+? se for ignorado repetido
+    // 6.5.3) Carrega meta do CHILD e demais fases-filhas (phaseIds = [parentId, firstPhaseId, outros…])
     const allPhaseIds = phases.map(p => p.id);
-    // A consulta já filtra only ‘field_%’ e rfc.opportunity_id ∈ allPhaseIds
-    const allMeta = await fetchMetaForSingleRegistration(reg.registration_id, allPhaseIds);
-    // allMeta poderá ter chaves para phase 208, 290, etc, EXCETO PAI (porque este não será meta daquele registrationId)
+    const allMetaGrouped = await fetchOrderedMetaForRegistration(reg.registration_id, allPhaseIds);
+    // allMetaGrouped[208] = [ {label,value}, … ] se houver
+    // allMetaGrouped[290] = [ {label,value}, … ] se houver
+    // NOTA: allMetaGrouped[parentId] provavelmente vazio (porque este regId = child)
+    //       mas ficou aqui por completude; já fizemos parent acima.
 
-    // 6.5.4) Monta o array data.phases com metaFields para cada fase, na ordem de phases[]
-    //          idx=0 sempre será o PAI → metaFields = parentMetaFields.
-    //          idx>0 serão as fases-filhas, metaFields = allMeta[thatPhaseId] ou {} se não existir.
+    // 6.5.4) Monta dataPhases: o primeiro elemento é o pai, seg. parentMetaArray,
+    //          e restante são fases-filhas em ordem:
     const dataPhases = phases.map((phase, idx) => {
       if (idx === 0) {
-        // fase-pai, rotulada no template como “Fase de inscrições”
+        // fase-pai
         return {
           id:         phase.id,
           name:       phase.name,
-          metaFields: parentMetaFields
+          metaArray:  parentMetaArray
         };
       } else {
         // fase-filho
         return {
           id:         phase.id,
           name:       phase.name,
-          metaFields: allMeta[phase.id] || {}
+          metaArray:  allMetaGrouped[phase.id] || []
         };
       }
     });
 
-    // 6.5.5) Monta objeto “data” e renderiza HTML via Handlebars
+    // 6.5.5) Monta o objeto “data” para o template
     const data = {
       registration_number: regNumber,
       agent: {
         id:   reg.agent_id,
         name: reg.agent_name || '',
       },
-      phases:   dataPhases,
+      phases:    dataPhases,
       assetPath: assetPath
     };
 
+    // 6.5.6) Renderiza HTML
     let html;
     try {
       html = template(data);
@@ -355,7 +367,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 6.5.6) Converte HTML em PDF
+    // 6.5.7) Converte HTML em PDF
     let pdfBuffer;
     try {
       pdfBuffer = await htmlToPdfBuffer(html);
@@ -364,7 +376,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 6.5.7) Salva o PDF em OUTPUT_DIR
+    // 6.5.8) Salva o PDF em OUTPUT_DIR
     const filename = `ficha_${parentId}_${regNumber}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
@@ -376,7 +388,7 @@ async function generateFichas(parentId) {
     }
   }
 
-  // 6.6) Empacota todos os PDFs num ZIP e retorna o nome do arquivo
+  // 6.6) Empacota todos os PDFs num ZIP e retorna o nome
   const zipFilename = `fichas_${parentId}.zip`;
   const zipFilepath = path.join(OUTPUT_DIR, zipFilename);
   const output = fs.createWriteStream(zipFilepath);

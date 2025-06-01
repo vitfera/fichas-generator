@@ -90,12 +90,12 @@
         {{/if}}
       </div>
       <table>
-        {{#if this.metaFields}}
-          {{!-- Para cada chave de metaFields, monta uma linha --}}
-          {{#each (keys this.metaFields)}}
+        {{#if this.metaArray.length}}
+          {{!-- Para cada item em this.metaArray, montamos uma linha --}}
+          {{#each this.metaArray}}
             <tr>
-              <td class="label">{{this}}</td>
-              <td class="value">{{lookup ../this.metaFields this}}</td>
+              <td class="label">{{this.label}}</td>
+              <td class="value">{{this.value}}</td>
             </tr>
           {{/each}}
         {{else}}
@@ -105,9 +105,5 @@
         {{/if}}
       </table>
     {{/each}}
-
-    <footer>
-      Página <span class="pageNumber"></span> de <span class="totalPages"></span>
-    </footer>
   </body>
 </html>
