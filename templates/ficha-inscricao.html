@@ -2,7 +2,7 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <title>Ficha de Inscrição – {{registration_id}}</title>
+    <title>Ficha de Inscrição – {{registration_number}}</title>
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -55,56 +55,56 @@
     </style>
   </head>
   <body>
-    <!-- Exibe o logo -->
+    <!-- Logo -->
     <div class="logo">
       <img src="file://{{assetPath}}/logo.png" alt="Logo" />
     </div>
 
-    <h1>FICHA DE INSCRIÇÃO – OPORTUNIDADE {{opportunity_id}}</h1>
+    <!-- Título fixo para a fase-pai -->
+    <h1>FICHA DE INSCRIÇÃO – Fase de inscrições</h1>
 
-    <!-- Cabeçalho com ID da inscrição e nome do projeto -->
+    <!-- Mostrar número da inscrição (campo number) -->
     <p>
-      <strong>ID INSCRIÇÃO:</strong> {{registration_id}}<br />
-      <strong>PROJETO:</strong> {{project_name}}
+      <strong>ID INSCRIÇÃO (número):</strong> {{registration_number}}
     </p>
 
-    <!-- DADOS DO AGENTE CULTURAL -->
+    <!-- Dados do agente cultural -->
     <div class="section-title">DADOS DO AGENTE CULTURAL</div>
     <table>
       <tr>
         <td class="label">Nome do Agente</td>
         <td class="value">{{agent.name}}</td>
       </tr>
-      <!-- Se quiser exibir outros dados fixos, adicione aqui -->
+      <!-- Se houver mais dados fixos do agente, adicione aqui -->
     </table>
 
-    <!-- DADOS DE MAPEAMENTO (campos dinâmicos) -->
-    <div class="section-title">DADOS DE MAPEAMENTO</div>
-    <table>
-      {{#each mappingFields}}
-        <tr>
-          <td class="label">{{this.label}}</td>
-          <td class="value">{{this.value}}</td>
-        </tr>
-      {{/each}}
-    </table>
-
-    <!-- DADOS DO PROJETO (campo específico “Descrição do Projeto”) -->
-    <div class="section-title">DADOS DO PROJETO</div>
-    <table>
-      <tr>
-        <td class="label">Descrição do Projeto</td>
-        <!-- Usa o helper “get” para extrair a chave com acento e espaço -->
-        <td class="value">{{get metaFields "Descrição do Projeto"}}</td>
-      </tr>
-      <!-- Se quiser exibir outros campos fixos, repita o padrão: -->
-      <!--
-      <tr>
-        <td class="label">Outro Campo</td>
-        <td class="value">{{get metaFields "Outro Rótulo"}}</td>
-      </tr>
-      -->
-    </table>
+    <!-- Itera sobre cada fase (pai + filhos), em ordem -->
+    {{#each phases}}
+      <div class="section-title">
+        {{#if @first}}
+          <!-- Primeiro bloco: sempre “Fase de inscrições” -->
+          Fase de inscrições
+        {{else}}
+          <!-- Demais blocos: “FASE: <nome real>” -->
+          FASE: {{this.name}}
+        {{/if}}
+      </div>
+      <table>
+        {{#if this.metaFields}}
+          {{!-- Para cada chave de metaFields, monta uma linha --}}
+          {{#each (keys this.metaFields)}}
+            <tr>
+              <td class="label">{{this}}</td>
+              <td class="value">{{lookup ../this.metaFields this}}</td>
+            </tr>
+          {{/each}}
+        {{else}}
+          <tr>
+            <td class="label" colspan="2"><em>Sem respostas para esta fase</em></td>
+          </tr>
+        {{/if}}
+      </table>
+    {{/each}}
 
     <footer>
       Página <span class="pageNumber"></span> de <span class="totalPages"></span>
