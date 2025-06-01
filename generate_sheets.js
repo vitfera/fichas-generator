@@ -3,22 +3,17 @@
  *
  * Serviço HTTP para gerar fichas de inscrição em PDF de uma oportunidade pai
  * incluindo todas as suas fases-filhas (exceto “Publicação final do resultado”).
- * Os campos em cada fase são listados segundo o display_order da tabela
- * registration_field_configuration.
+ * Os campos em cada fase são listados segundo o display_order, e valores
+ * que forem arrays JSON são formatados para exibição legível.
  *
  * Passos:
  *   1) GET  /        → lista apenas as oportunidades‐pai (parent_id IS NULL).
  *   2) POST /generate → recebe parentId, identifica “primeira fase filha” (menor ID > parentId,
  *                      ignorando parentId+1), busca inscrições dessa fase, e para cada inscrição:
- *                      a) lê a chave previousPhaseRegistrationId para achar a inscrição-pai,
- *                         então busca meta para a fase-pai (phaseId = parentId);
- *                      b) busca meta para a própria inscrição (phaseId = firstPhaseId);
- *                      c) busca meta para fases-filhas posteriores (phaseId > firstPhaseId),
- *                         se existirem e forem relevantes;
- *                      d) monta os blocos “pai” + “filhos” e gera PDF+ZIP.
- *
- * As respostas da tabela registration_meta serão combinadas com registration_field_configuration
- * para extrair, para cada fase, um array de objetos { label, value } ordenado por display_order.
+ *                      a) lê previousPhaseRegistrationId para achar inscrição-pai,
+ *                      b) busca meta (campo + valor) do pai e filhos, ordenado,
+ *                      c) transforma valores JSON-array em texto com quebras de linha,
+ *                      d) gera PDF + ZIP.
  *
  * Antes de executar, crie .env contendo:
  *   DB_HOST=localhost
@@ -44,7 +39,9 @@ const Handlebars = require('handlebars');
 const puppeteer = require('puppeteer-core');
 const archiver = require('archiver');
 
+// ------------------------------------------------------------
 // 1) Configuração do banco a partir do .env
+// ------------------------------------------------------------
 const DB_HOST     = process.env.DB_HOST     || 'localhost';
 const DB_PORT     = parseInt(process.env.DB_PORT     || '5432', 10);
 const DB_USER     = process.env.DB_USER     || 'mapas';
@@ -61,7 +58,9 @@ const pool = new Pool({
   database: DB_NAME,
 });
 
+// ------------------------------------------------------------
 // 2) Helpers Handlebars
+// ------------------------------------------------------------
 Handlebars.registerHelper('get', (obj, key) => {
   return (obj && obj[key] !== undefined) ? obj[key] : '';
 });
@@ -75,7 +74,9 @@ Handlebars.registerHelper('lookup', (obj, field) => {
   return (obj && obj[field] !== undefined) ? obj[field] : '';
 });
 
+// ------------------------------------------------------------
 // 3) Carrega e compila o template
+// ------------------------------------------------------------
 const templatePath = path.join(__dirname, 'templates', 'ficha-inscricao.html');
 if (!fs.existsSync(templatePath)) {
   console.error(`Template não encontrado em ${templatePath}`);
@@ -84,12 +85,56 @@ if (!fs.existsSync(templatePath)) {
 const templateSource = fs.readFileSync(templatePath, 'utf-8');
 const template       = Handlebars.compile(templateSource);
 
+// ------------------------------------------------------------
 // 4) Caminho do logo
+// ------------------------------------------------------------
 const assetPath = path.join(__dirname, 'assets');
 
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
+// Função auxiliar para formatar valores que podem ser JSON arrays
+// ------------------------------------------------------------
+function formatValue(raw) {
+  if (typeof raw !== 'string') {
+    return String(raw);
+  }
+
+  // Tenta parsear como JSON
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Se não for JSON válido, retorna o raw “cru”
+    return raw;
+  }
+
+  // Se for um array de strings ou números, junta com quebras de linha
+  if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string' || typeof x === 'number')) {
+    // Ex.: ["item1", "item2", "item3"]
+    // Vamos encadear como linhas, usando <br/>
+    return parsed.map((x) => String(x)).join('<br/>');
+  }
+
+  // Se for um array de objetos, transforma cada objeto em “key: value; key2: value2” e separa por <br/>
+  if (Array.isArray(parsed) && parsed.every((x) => x && typeof x === 'object' && !Array.isArray(x))) {
+    const lines = parsed.map((obj) => {
+      // Para cada objeto, montamos “Chave1: Valor1; Chave2: Valor2; …”
+      const parts = [];
+      for (const [k, v] of Object.entries(obj)) {
+        if (k === '$$hashKey') continue; // ignora campos internos, se houver
+        parts.push(`${k}: ${v}`);
+      }
+      return parts.join('; ');
+    });
+    return lines.join('<br/><br/>');
+  }
+
+  // Se não for array ou não for o formato esperado, retorna o raw
+  return raw;
+}
+
+// ------------------------------------------------------------
 // Funções de acesso ao banco
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 
 // 4.1) Lista todas as oportunidades‐pai (parent_id IS NULL), ordenadas por nome
 async function fetchParentOpportunities() {
@@ -133,7 +178,7 @@ async function findFirstPhaseId(parentId) {
   return children[0].id;
 }
 
-// 4.4) Buscar todas as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
+// 4.4) Busca todas as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
 async function fetchAllRelevantPhases(parentId) {
   const client = await pool.connect();
   try {
@@ -151,8 +196,7 @@ async function fetchAllRelevantPhases(parentId) {
   }
 }
 
-// 4.5) Busca inscrições para uma fase (phaseId) qualquer → retorna
-//      [{ registration_id, registration_number, agent_id, agent_name }, …]
+// 4.5) Busca inscrições para uma fase (phaseId) → retorna [{ registration_id, registration_number, agent_id, agent_name }, …]
 async function fetchRegistrationsForPhase(phaseId) {
   const client = await pool.connect();
   try {
@@ -175,8 +219,7 @@ async function fetchRegistrationsForPhase(phaseId) {
 }
 
 // 4.6) Busca a inscrição‐pai associada a uma inscrição‐child, lendo
-//      previousPhaseRegistrationId de registration_meta.
-//      Retorna null se não encontrar.
+//      previousPhaseRegistrationId de registration_meta. Retorna null se não achar.
 async function fetchParentRegistrationId(childRegistrationId) {
   const client = await pool.connect();
   try {
@@ -197,15 +240,14 @@ async function fetchParentRegistrationId(childRegistrationId) {
 }
 
 // 4.7) Busca TODAS as respostas (registration_meta → registration_field_configuration)
-//      de uma inscrição específica, mas SEMPRE filtrando rm.key LIKE 'field_%'.
-//      Retorna um objeto onde each phaseId contém UM ARRAY de objetos 
-//      { label, value } ordenado por display_order.
-//      
-//    regId     → id da inscrição a ser buscada (pode ser da fase pai ou fase child)
-//    phaseIds  → array de phaseId que serão considerados (por ex. [11] ou [11,208,290])
+//      de uma inscrição específica (regId), filtrando rm.key LIKE 'field_%' e
+//      rfc.opportunity_id ∈ phaseIds. Retorna um objeto { [phaseId]: [ {label,value}, … ] } 
+//      em que cada array está naturalmente ordenado por display_order.
+//
+//    - regId     → id da inscrição (inteiro)
+//    - phaseIds  → array de inteiros contendo os IDs de todas as fases pertinentes
 ////////////////////////////////////////////////////////////////////////////////
 async function fetchOrderedMetaForRegistration(regId, phaseIds) {
-  // Vamos retornar { [phaseId]: [ { label, value }, … ] }
   const client = await pool.connect();
   try {
     const query = `
@@ -223,18 +265,13 @@ async function fetchOrderedMetaForRegistration(regId, phaseIds) {
       ORDER BY rfc.opportunity_id, rfc.display_order;
     `;
     const res = await client.query(query, [regId, phaseIds]);
-    // O ORDER BY acima já agrupa por phase_id e depois por display_order,
-    // mas ainda precisamos organizar em array por phase_id:
     const grouped = {};
     for (const row of res.rows) {
       const pid = row.phase_id;
-      if (!grouped[pid]) {
-        grouped[pid] = [];
-      }
+      if (!grouped[pid]) grouped[pid] = [];
       grouped[pid].push({
         label: row.field_label,
         value: row.field_value
-        // (Já está "ordenado" porque o SELECT fez ORDER BY display_order)
       });
     }
     return grouped;
@@ -243,9 +280,9 @@ async function fetchOrderedMetaForRegistration(regId, phaseIds) {
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 // 5) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 async function htmlToPdfBuffer(html) {
   // Ajuste conforme seu ambiente se o binário for diferente
   const executablePath = '/usr/bin/chromium';
@@ -264,7 +301,7 @@ async function htmlToPdfBuffer(html) {
   return pdfBuffer;
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 // 6) Geração de fichas:  
 //    Recebe um parentId e realiza todos os passos:
 //      - Identifica firstPhaseId (menor filho ≠ parentId+1)
@@ -274,11 +311,12 @@ async function htmlToPdfBuffer(html) {
 //          * Lê previousPhaseRegistrationId → parentRegistrationId
 //          * Busca meta ordenado do parent (fase pai) usando parentRegistrationId + [parentId]
 //          * Busca meta ordenado do child (fase 1) e demais fases-filhas
+//          * Formata automaticamente valores JSON (arrays) com quebras de linha
 //          * Gera PDF + armazena lista de nomes
 //      - Empacota tudo num ZIP e retorna o nome do ZIP
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 async function generateFichas(parentId) {
-  // 6.1) Identifica a “primeira fase” (menor ID dentre filhos ≠ parentId+1)
+  // 6.1) Identifica a “primeira fase filha” (menor ID dentre filhos ≠ parentId+1)
   const firstPhaseId = await findFirstPhaseId(parentId);
   if (!firstPhaseId) {
     throw new Error(`Nenhuma fase-filho válida encontrada para parentId=${parentId}`);
@@ -287,13 +325,13 @@ async function generateFichas(parentId) {
   // 6.2) Carrega TODAS as fases relevantes: 
   //     [ {id:parentId, name:…}, {id:filho1, name:…}, … ]
   const phases = await fetchAllRelevantPhases(parentId);
-  // e.g. [ {id:11, name:"Pai"}, {id:208, name:"Filho1"}, {id:290, name:"Filho2"} ]
+  // exemplo: [ {id:11, name:"Pai"}, {id:208, name:"Recebimento…"}, {id:290, name:"Prestação de Contas"} ]
 
-  // 6.3) Busca as inscrições SÓ da “firstPhaseId”
+  // 6.3) Busca as inscrições SÓ da “firstPhaseId” (fase de inscrições real)
   const registrations = await fetchRegistrationsForPhase(firstPhaseId);
-  // e.g. [ { registration_id:2000, registration_number:"AC123", agent_id:45, agent_name:"Maria" }, … ]
+  // ex.: [ { registration_id:2000, registration_number:"AC1336814822", agent_id:45, agent_name:"…"}, … ]
 
-  // 6.4) Garante que OUTPUT_DIR exista e cria placeholder
+  // 6.4) Garante que OUTPUT_DIR exista e cria placeholder bloqueador
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   }
@@ -304,45 +342,59 @@ async function generateFichas(parentId) {
 
   const pdfFilenames = [];
 
-  // 6.5) Para cada inscrição da primeira fase (child), processa
+  // 6.5) Para cada inscrição da primeira fase (child), processa:
   for (const reg of registrations) {
     const regNumber = reg.registration_number || reg.registration_id;
 
     // 6.5.1) Descobre parentRegistrationId via previousPhaseRegistrationId
     const parentRegId = await fetchParentRegistrationId(reg.registration_id);
 
-    // 6.5.2) Carrega meta do PAI (phaseId = parentId) se parentRegId existir
+    // 6.5.2) Busca meta do PAI (phaseId = parentId) se existir
     let parentMetaArray = [];
     if (parentRegId) {
-      // obter um array de {label,value} ordenado por display_order
+      // retorna [ {label, value}, … ] ordenado por display_order
       const parentGrouped = await fetchOrderedMetaForRegistration(parentRegId, [parentId]);
-      parentMetaArray = parentGrouped[parentId] || [];
+      const rawParentArray = parentGrouped[parentId] || [];
+      // Formata cada valor (pode ser array JSON)
+      parentMetaArray = rawParentArray.map((item) => ({
+        label: item.label,
+        value: formatValue(item.value)
+      }));
     }
 
-    // 6.5.3) Carrega meta do CHILD e demais fases-filhas (phaseIds = [parentId, firstPhaseId, outros…])
-    const allPhaseIds = phases.map(p => p.id);
+    // 6.5.3) Busca meta do CHILD e demais fases-filhas
+    const allPhaseIds = phases.map((p) => p.id);
     const allMetaGrouped = await fetchOrderedMetaForRegistration(reg.registration_id, allPhaseIds);
-    // allMetaGrouped[208] = [ {label,value}, … ] se houver
-    // allMetaGrouped[290] = [ {label,value}, … ] se houver
-    // NOTA: allMetaGrouped[parentId] provavelmente vazio (porque este regId = child)
-    //       mas ficou aqui por completude; já fizemos parent acima.
+    // allMetaGrouped[208] = [ {label,value}, … ], allMetaGrouped[290] = [ … ]
 
-    // 6.5.4) Monta dataPhases: o primeiro elemento é o pai, seg. parentMetaArray,
-    //          e restante são fases-filhas em ordem:
+    // Obtemos e formatamos arrays para cada fase-filho:
+    const childMetaArrays = {}; 
+    for (const phase of phases) {
+      if (phase.id === parentId) continue; // pai já tratado
+      const rawArr = allMetaGrouped[phase.id] || [];
+      childMetaArrays[phase.id] = rawArr.map((item) => ({
+        label: item.label,
+        value: formatValue(item.value)
+      }));
+    }
+
+    // 6.5.4) Monta dataPhases, em que cada elemento tem:
+    //    { id, name, rows: [ {label, value}, … ] }
+    // idx=0 (pai) usa parentMetaArray, idx>0 (filhos) usa childMetaArrays[phase.id]
     const dataPhases = phases.map((phase, idx) => {
       if (idx === 0) {
         // fase-pai
         return {
-          id:         phase.id,
-          name:       phase.name,
-          metaArray:  parentMetaArray
+          id:   phase.id,
+          name: phase.name,
+          rows: parentMetaArray
         };
       } else {
         // fase-filho
         return {
-          id:         phase.id,
-          name:       phase.name,
-          metaArray:  allMetaGrouped[phase.id] || []
+          id:   phase.id,
+          name: phase.name,
+          rows: childMetaArrays[phase.id] || []
         };
       }
     });
@@ -358,7 +410,7 @@ async function generateFichas(parentId) {
       assetPath: assetPath
     };
 
-    // 6.5.6) Renderiza HTML
+    // 6.5.6) Renderiza HTML com Handlebars
     let html;
     try {
       html = template(data);
@@ -367,7 +419,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 6.5.7) Converte HTML em PDF
+    // 6.5.7) Gera o PDF
     let pdfBuffer;
     try {
       pdfBuffer = await htmlToPdfBuffer(html);
@@ -376,7 +428,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 6.5.8) Salva o PDF em OUTPUT_DIR
+    // 6.5.8) Salva em OUTPUT_DIR
     const filename = `ficha_${parentId}_${regNumber}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
@@ -388,7 +440,7 @@ async function generateFichas(parentId) {
     }
   }
 
-  // 6.6) Empacota todos os PDFs num ZIP e retorna o nome
+  // 6.6) Empacota tudo num ZIP
   const zipFilename = `fichas_${parentId}.zip`;
   const zipFilepath = path.join(OUTPUT_DIR, zipFilename);
   const output = fs.createWriteStream(zipFilepath);
@@ -411,17 +463,17 @@ async function generateFichas(parentId) {
   });
 }
 
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 // Configuração do Express
-////////////////////////////////////////////////////////////////////////////////
+// ------------------------------------------------------------
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 
-// Servir arquivos estáticos em /downloads (PDFs e ZIPs)
+// Servir estáticos em /downloads (PDFs e ZIP gerados)
 app.use('/downloads', express.static(OUTPUT_DIR));
 
 ////////////////////////////////////////////////////////////////////////////////
-// GET / → form com <select> apenas de oportunidades-pai
+// GET / → formulário com <select> apenas das oportunidades-pai
 ////////////////////////////////////////////////////////////////////////////////
 app.get('/', async (req, res) => {
   let parents = [];
@@ -494,7 +546,7 @@ app.post('/generate', async (req, res) => {
   }
 });
 
-// Inicia servidor
+// 7) Inicia servidor HTTP
 app.listen(SERVER_PORT, () => {
   console.log(`Servidor rodando na porta ${SERVER_PORT}`);
   console.log(`Acesse http://localhost:${SERVER_PORT}/ para gerar fichas.`);

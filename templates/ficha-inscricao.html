@@ -57,13 +57,13 @@
   <body>
     <!-- Logo -->
     <div class="logo">
-      <img src="file://{{assetPath}}/logo.png" alt="Logo" />
+      <img src="file:///{{assetPath}}/logo.png" alt="Logo" />
     </div>
 
     <!-- Título fixo para a fase-pai -->
     <h1>FICHA DE INSCRIÇÃO – Fase de inscrições</h1>
 
-    <!-- Mostrar número da inscrição (campo number) -->
+    <!-- Exibe o número da inscrição (campo number) -->
     <p>
       <strong>ID INSCRIÇÃO (número):</strong> {{registration_number}}
     </p>
@@ -75,27 +75,28 @@
         <td class="label">Nome do Agente</td>
         <td class="value">{{agent.name}}</td>
       </tr>
-      <!-- Se houver mais dados fixos do agente, adicione aqui -->
+      <!-- Se houver outros dados fixos do agente, adicione aqui -->
     </table>
 
-    <!-- Itera sobre cada fase (pai + filhos), em ordem -->
+    <!-- Agora iteramos sobre todas as fases (pai + filhos) -->
     {{#each phases}}
       <div class="section-title">
         {{#if @first}}
-          <!-- Primeiro bloco: sempre “Fase de inscrições” -->
+          <!-- Primeiro bloco → sempre “Fase de inscrições” -->
           Fase de inscrições
         {{else}}
-          <!-- Demais blocos: “FASE: <nome real>” -->
+          <!-- Blocos seguintes → “FASE: nomeReal” -->
           FASE: {{this.name}}
         {{/if}}
       </div>
       <table>
-        {{#if this.metaArray.length}}
-          {{!-- Para cada item em this.metaArray, montamos uma linha --}}
-          {{#each this.metaArray}}
+        {{#if this.rows.length}}
+          {{!-- Cada item em this.rows = { label, valueHTML } --}}
+          {{#each this.rows}}
             <tr>
               <td class="label">{{this.label}}</td>
-              <td class="value">{{this.value}}</td>
+              <td class="value">{{{this.value}}}</td>
+              <!-- usamos triple-stache {{{this.value}}} para quebras de linha <br/> -->
             </tr>
           {{/each}}
         {{else}}
