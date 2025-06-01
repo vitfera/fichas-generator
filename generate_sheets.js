@@ -37,7 +37,7 @@ const fs = require('fs');
 const { Pool } = require('pg');
 const Handlebars = require('handlebars');
 const puppeteer = require('puppeteer-core');
-const archiver = require('archiver');
+const archiver  = require('archiver');
 
 // ------------------------------------------------------------
 // 1) Configuração do banco a partir do .env
@@ -89,54 +89,78 @@ const template       = Handlebars.compile(templateSource);
 // 4) Caminho do logo
 // ------------------------------------------------------------
 const assetPath = path.join(__dirname, 'assets');
-
-// ------------------------------------------------------------
-// Função auxiliar para formatar valores que podem ser JSON arrays
-// ------------------------------------------------------------
-function formatValue(raw) {
-  if (typeof raw !== 'string') {
-    return String(raw);
-  }
-
-  // Tenta parsear como JSON
-  let parsed;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    // Se não for JSON válido, retorna o raw “cru”
-    return raw;
-  }
-
-  // Se for um array de strings ou números, junta com quebras de linha
-  if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string' || typeof x === 'number')) {
-    // Ex.: ["item1", "item2", "item3"]
-    // Vamos encadear como linhas, usando <br/>
-    return parsed.map((x) => String(x)).join('<br/>');
-  }
-
-  // Se for um array de objetos, transforma cada objeto em “key: value; key2: value2” e separa por <br/>
-  if (Array.isArray(parsed) && parsed.every((x) => x && typeof x === 'object' && !Array.isArray(x))) {
-    const lines = parsed.map((obj) => {
-      // Para cada objeto, montamos “Chave1: Valor1; Chave2: Valor2; …”
-      const parts = [];
-      for (const [k, v] of Object.entries(obj)) {
-        if (k === '$$hashKey') continue; // ignora campos internos, se houver
-        parts.push(`${k}: ${v}`);
-      }
-      return parts.join('; ');
-    });
-    return lines.join('<br/><br/>');
-  }
-
-  // Se não for array ou não for o formato esperado, retorna o raw
-  return raw;
+let logoBase64 = '';
+try {
+  const logoBuffer = fs.readFileSync(path.join(assetPath, 'logo.png'));
+  logoBase64 = logoBuffer.toString('base64');
+} catch (err) {
+  console.warn('Atenção: não foi possível ler assets/logo.png para incorporar no PDF.');
+  // logoBase64 fica vazio → o template exibirá vazio
 }
 
 // ------------------------------------------------------------
-// Funções de acesso ao banco
+// 5) Função para formatar valores: datas e JSON-arrays
+// ------------------------------------------------------------
+function formatValue(raw) {
+  if (raw == null) return '';
+
+  // 5.1) Se for string no formato YYYY-MM-DD, converte para DD/MM/YYYY
+  if (typeof raw === 'string') {
+    // Regex simples: 4 dígitos-2 dígitos-2 dígitos (não contempla horário)
+    const isoDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDateMatch) {
+      const [, year, month, day] = isoDateMatch;
+      return `${day}/${month}/${year}`;
+    }
+  }
+
+  // 5.2) Se quiser tratar datetimes (YYYY-MM-DDTHH:MM:SSZ), podemos estender:
+  const isoDateTimeMatch = typeof raw === 'string'
+    ? raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})/)
+    : null;
+  if (isoDateTimeMatch) {
+    const [, year, month, day, time] = isoDateTimeMatch;
+    return `${day}/${month}/${year} ${time}`;
+  }
+
+  // 5.3) Tenta parsear como JSON
+  let parsed;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+  }
+
+  if (Array.isArray(parsed)) {
+    // 5.4) Caso seja array de strings ou números → junta com <br/>
+    if (parsed.every(x => typeof x === 'string' || typeof x === 'number')) {
+      return parsed.map(x => String(x)).join('<br/>');
+    }
+    // 5.5) Caso seja array de objetos → converte cada objeto em "chave: valor; chave2: valor2" e separa cada objeto com <br/><br/>
+    if (parsed.every(x => x && typeof x === 'object' && !Array.isArray(x))) {
+      const lines = parsed.map(obj => {
+        const parts = [];
+        for (const [k, v] of Object.entries(obj)) {
+          if (k === '$$hashKey') continue;
+          parts.push(`${k}: ${v}`);
+        }
+        return parts.join('; ');
+      });
+      return lines.join('<br/><br/>');
+    }
+  }
+
+  // 5.6) Senão, retorna o raw como string simples
+  return String(raw);
+}
+
+// ------------------------------------------------------------
+// 6) Funções de acesso ao banco
 // ------------------------------------------------------------
 
-// 4.1) Lista todas as oportunidades‐pai (parent_id IS NULL), ordenadas por nome
+// 6.1) Lista todas as oportunidades‐pai (parent_id IS NULL), ordenadas por nome
 async function fetchParentOpportunities() {
   const client = await pool.connect();
   try {
@@ -153,7 +177,7 @@ async function fetchParentOpportunities() {
   }
 }
 
-// 4.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1, ordenados por ID
+// 6.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1, ordenados por ID
 async function fetchChildrenExcludingNext(parentId) {
   const client = await pool.connect();
   try {
@@ -171,14 +195,14 @@ async function fetchChildrenExcludingNext(parentId) {
   }
 }
 
-// 4.3) Retorna o menor ID dentre os filhos (exceto parentId+1), ou null se não houver
+// 6.3) Retorna o menor ID dentre os filhos (exceto parentId+1), ou null se não houver
 async function findFirstPhaseId(parentId) {
   const children = await fetchChildrenExcludingNext(parentId);
-  if (!children.length) return null;
+  if (children.length === 0) return null;
   return children[0].id;
 }
 
-// 4.4) Busca todas as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
+// 6.4) Busca todas as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
 async function fetchAllRelevantPhases(parentId) {
   const client = await pool.connect();
   try {
@@ -196,7 +220,8 @@ async function fetchAllRelevantPhases(parentId) {
   }
 }
 
-// 4.5) Busca inscrições para uma fase (phaseId) → retorna [{ registration_id, registration_number, agent_id, agent_name }, …]
+// 6.5) Busca inscrições para uma fase (phaseId) → retorna:
+//      [ { registration_id, registration_number, agent_id, agent_name }, … ]
 async function fetchRegistrationsForPhase(phaseId) {
   const client = await pool.connect();
   try {
@@ -218,7 +243,7 @@ async function fetchRegistrationsForPhase(phaseId) {
   }
 }
 
-// 4.6) Busca a inscrição‐pai associada a uma inscrição‐child, lendo
+// 6.6) Busca a inscrição‐pai associada a uma inscrição‐child, lendo
 //      previousPhaseRegistrationId de registration_meta. Retorna null se não achar.
 async function fetchParentRegistrationId(childRegistrationId) {
   const client = await pool.connect();
@@ -239,14 +264,13 @@ async function fetchParentRegistrationId(childRegistrationId) {
   }
 }
 
-// 4.7) Busca TODAS as respostas (registration_meta → registration_field_configuration)
+// 6.7) Busca TODAS as respostas (registration_meta → registration_field_configuration)
 //      de uma inscrição específica (regId), filtrando rm.key LIKE 'field_%' e
-//      rfc.opportunity_id ∈ phaseIds. Retorna um objeto { [phaseId]: [ {label,value}, … ] } 
-//      em que cada array está naturalmente ordenado por display_order.
+//      rfc.opportunity_id ∈ phaseIds. Retorna um objeto { [phaseId]: [ {label,value}, … ] }
+//      em que cada array está ordenado por display_order.
 //
-//    - regId     → id da inscrição (inteiro)
-//    - phaseIds  → array de inteiros contendo os IDs de todas as fases pertinentes
-////////////////////////////////////////////////////////////////////////////////
+//      → regId    (inteiro)
+//      → phaseIds (array de inteiros)
 async function fetchOrderedMetaForRegistration(regId, phaseIds) {
   const client = await pool.connect();
   try {
@@ -281,10 +305,9 @@ async function fetchOrderedMetaForRegistration(regId, phaseIds) {
 }
 
 // ------------------------------------------------------------
-// 5) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
+// 7) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
 // ------------------------------------------------------------
 async function htmlToPdfBuffer(html) {
-  // Ajuste conforme seu ambiente se o binário for diferente
   const executablePath = '/usr/bin/chromium';
   const browser = await puppeteer.launch({
     executablePath,
@@ -302,36 +325,23 @@ async function htmlToPdfBuffer(html) {
 }
 
 // ------------------------------------------------------------
-// 6) Geração de fichas:  
-//    Recebe um parentId e realiza todos os passos:
-//      - Identifica firstPhaseId (menor filho ≠ parentId+1)
-//      - Carrega todas as fases [parentId, firstPhaseId, outros filhos…]
-//      - Carrega inscrições só da firstPhaseId (child)
-//      - Para cada inscrição-child:
-//          * Lê previousPhaseRegistrationId → parentRegistrationId
-//          * Busca meta ordenado do parent (fase pai) usando parentRegistrationId + [parentId]
-//          * Busca meta ordenado do child (fase 1) e demais fases-filhas
-//          * Formata automaticamente valores JSON (arrays) com quebras de linha
-//          * Gera PDF + armazena lista de nomes
-//      - Empacota tudo num ZIP e retorna o nome do ZIP
+// 8) Geração de fichas para um parentId
 // ------------------------------------------------------------
 async function generateFichas(parentId) {
-  // 6.1) Identifica a “primeira fase filha” (menor ID dentre filhos ≠ parentId+1)
+  // 8.1) Identifica a “primeira fase filha” (menor ID dentre filhos ≠ parentId+1)
   const firstPhaseId = await findFirstPhaseId(parentId);
   if (!firstPhaseId) {
     throw new Error(`Nenhuma fase-filho válida encontrada para parentId=${parentId}`);
   }
 
-  // 6.2) Carrega TODAS as fases relevantes: 
-  //     [ {id:parentId, name:…}, {id:filho1, name:…}, … ]
+  // 8.2) Carrega TODAS as fases relevantes: 
+  //      [ {id:parentId, name:…}, {id:filho1, name:…}, … ]
   const phases = await fetchAllRelevantPhases(parentId);
-  // exemplo: [ {id:11, name:"Pai"}, {id:208, name:"Recebimento…"}, {id:290, name:"Prestação de Contas"} ]
 
-  // 6.3) Busca as inscrições SÓ da “firstPhaseId” (fase de inscrições real)
+  // 8.3) Busca as inscrições SÓ da “firstPhaseId”
   const registrations = await fetchRegistrationsForPhase(firstPhaseId);
-  // ex.: [ { registration_id:2000, registration_number:"AC1336814822", agent_id:45, agent_name:"…"}, … ]
 
-  // 6.4) Garante que OUTPUT_DIR exista e cria placeholder bloqueador
+  // 8.4) Garante que OUTPUT_DIR exista e cria placeholder
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   }
@@ -342,55 +352,49 @@ async function generateFichas(parentId) {
 
   const pdfFilenames = [];
 
-  // 6.5) Para cada inscrição da primeira fase (child), processa:
+  // 8.5) Para cada inscrição da primeira fase (child), processa:
   for (const reg of registrations) {
     const regNumber = reg.registration_number || reg.registration_id;
 
-    // 6.5.1) Descobre parentRegistrationId via previousPhaseRegistrationId
+    // 8.5.1) Descobre parentRegistrationId via previousPhaseRegistrationId
     const parentRegId = await fetchParentRegistrationId(reg.registration_id);
 
-    // 6.5.2) Busca meta do PAI (phaseId = parentId) se existir
+    // 8.5.2) Busca meta do PAI (phaseId = parentId) se existir
     let parentMetaArray = [];
     if (parentRegId) {
-      // retorna [ {label, value}, … ] ordenado por display_order
       const parentGrouped = await fetchOrderedMetaForRegistration(parentRegId, [parentId]);
       const rawParentArray = parentGrouped[parentId] || [];
-      // Formata cada valor (pode ser array JSON)
-      parentMetaArray = rawParentArray.map((item) => ({
+      // Aplica formatValue a cada valor
+      parentMetaArray = rawParentArray.map(item => ({
         label: item.label,
         value: formatValue(item.value)
       }));
     }
 
-    // 6.5.3) Busca meta do CHILD e demais fases-filhas
-    const allPhaseIds = phases.map((p) => p.id);
+    // 8.5.3) Busca meta do CHILD e demais fases-filhas
+    const allPhaseIds = phases.map(p => p.id);
     const allMetaGrouped = await fetchOrderedMetaForRegistration(reg.registration_id, allPhaseIds);
-    // allMetaGrouped[208] = [ {label,value}, … ], allMetaGrouped[290] = [ … ]
 
-    // Obtemos e formatamos arrays para cada fase-filho:
-    const childMetaArrays = {}; 
+    // Formata cada array por fase-filho:
+    const childMetaArrays = {};
     for (const phase of phases) {
-      if (phase.id === parentId) continue; // pai já tratado
+      if (phase.id === parentId) continue;
       const rawArr = allMetaGrouped[phase.id] || [];
-      childMetaArrays[phase.id] = rawArr.map((item) => ({
+      childMetaArrays[phase.id] = rawArr.map(item => ({
         label: item.label,
         value: formatValue(item.value)
       }));
     }
 
-    // 6.5.4) Monta dataPhases, em que cada elemento tem:
-    //    { id, name, rows: [ {label, value}, … ] }
-    // idx=0 (pai) usa parentMetaArray, idx>0 (filhos) usa childMetaArrays[phase.id]
+    // 8.5.4) Monta dataPhases, cada elemento { id, name, rows }
     const dataPhases = phases.map((phase, idx) => {
       if (idx === 0) {
-        // fase-pai
         return {
           id:   phase.id,
           name: phase.name,
           rows: parentMetaArray
         };
       } else {
-        // fase-filho
         return {
           id:   phase.id,
           name: phase.name,
@@ -399,18 +403,18 @@ async function generateFichas(parentId) {
       }
     });
 
-    // 6.5.5) Monta o objeto “data” para o template
+    // 8.5.5) Monta objeto “data” e inclue logoBase64
     const data = {
       registration_number: regNumber,
       agent: {
         id:   reg.agent_id,
         name: reg.agent_name || '',
       },
-      phases:    dataPhases,
-      assetPath: assetPath
+      phases:     dataPhases,
+      logoBase64: logoBase64
     };
 
-    // 6.5.6) Renderiza HTML com Handlebars
+    // 8.5.6) Renderiza HTML
     let html;
     try {
       html = template(data);
@@ -419,7 +423,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 6.5.7) Gera o PDF
+    // 8.5.7) Converte HTML em PDF
     let pdfBuffer;
     try {
       pdfBuffer = await htmlToPdfBuffer(html);
@@ -428,7 +432,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 6.5.8) Salva em OUTPUT_DIR
+    // 8.5.8) Salva o PDF em OUTPUT_DIR
     const filename = `ficha_${parentId}_${regNumber}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
@@ -440,7 +444,7 @@ async function generateFichas(parentId) {
     }
   }
 
-  // 6.6) Empacota tudo num ZIP
+  // 8.6) Empacota todos os PDFs num ZIP e retorna o nome
   const zipFilename = `fichas_${parentId}.zip`;
   const zipFilepath = path.join(OUTPUT_DIR, zipFilename);
   const output = fs.createWriteStream(zipFilepath);
@@ -451,7 +455,7 @@ async function generateFichas(parentId) {
       console.log(`ZIP gerado: ${zipFilename} (${archive.pointer()} bytes)`);
       resolve(zipFilename);
     });
-    archive.on('error', (err) => {
+    archive.on('error', err => {
       console.error('Erro ao criar ZIP:', err);
       reject(err);
     });
@@ -473,7 +477,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/downloads', express.static(OUTPUT_DIR));
 
 ////////////////////////////////////////////////////////////////////////////////
-// GET / → formulário com <select> apenas das oportunidades-pai
+// GET / → formulário com <select> apenas de oportunidades-pai
 ////////////////////////////////////////////////////////////////////////////////
 app.get('/', async (req, res) => {
   let parents = [];
@@ -484,7 +488,7 @@ app.get('/', async (req, res) => {
   }
 
   const optionsHtml = parents
-    .map((row) => `<option value="${row.id}">${row.name}</option>`)
+    .map(row => `<option value="${row.id}">${row.name}</option>`)
     .join('\n');
 
   const html = `
@@ -546,7 +550,7 @@ app.post('/generate', async (req, res) => {
   }
 });
 
-// 7) Inicia servidor HTTP
+// 9) Inicia servidor HTTP
 app.listen(SERVER_PORT, () => {
   console.log(`Servidor rodando na porta ${SERVER_PORT}`);
   console.log(`Acesse http://localhost:${SERVER_PORT}/ para gerar fichas.`);
