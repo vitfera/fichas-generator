@@ -533,7 +533,7 @@ app.post('/generate', async (req, res) => {
     <title>Fichas Geradas</title>
   </head>
   <body>
-    <h1>Fichas geradas para oportunidade principal ${parentId}</h1>
+    <h1>Fichas geradas para oportunidade ${parentId}</h1>
     <p>
       <a href="/downloads/${zipFilename}" download>
         Baixar todas as fichas (ZIP)
