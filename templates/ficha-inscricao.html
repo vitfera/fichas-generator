@@ -4,9 +4,13 @@
     <meta charset="UTF-8" />
     <title>Ficha de Inscrição – {{registration_number}}</title>
     <style>
+      /* Importa Bootstrap para estilização básica no PDF */
+      @import url("https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css");
+
       body {
         font-family: Arial, sans-serif;
         margin: 1cm;
+        background-color: #fff;
       }
       .logo {
         text-align: center;
@@ -33,10 +37,12 @@
         border-collapse: collapse;
         margin-bottom: 12px;
       }
+      table th,
       table td {
         padding: 6px;
         vertical-align: top;
         border: 1px solid #ccc;
+        font-size: 12px;
       }
       .label {
         font-weight: bold;
@@ -45,7 +51,7 @@
       .value {
         width: 65%;
       }
-      footer {
+      .footer {
         position: fixed;
         bottom: 1cm;
         width: 100%;
@@ -55,58 +61,98 @@
     </style>
   </head>
   <body>
-    <!-- Logo -->
+    <!-- Logo (base64) -->
     <div class="logo">
       {{#if logoBase64}}
         <img src="data:image/png;base64,{{logoBase64}}" alt="Logo" />
       {{/if}}
     </div>
 
-    <!-- Título fixo para a fase-pai -->
-    <h1>FICHA DE INSCRIÇÃO – Fase de inscrições</h1>
+    <h1>FICHA DE INSCRIÇÃO – {{registration_number}}</h1>
 
-    <!-- Exibe o número da inscrição (campo number) -->
-    <p>
-      <strong>ID INSCRIÇÃO:</strong> {{registration_number}}
-    </p>
-
-    <!-- Dados do agente cultural -->
+    <!-- DADOS DO AGENTE CULTURAL -->
     <div class="section-title">DADOS DO AGENTE CULTURAL</div>
-    <table>
-      <tr>
-        <td class="label">Nome do Agente</td>
-        <td class="value">{{agent.name}}</td>
-      </tr>
-      <!-- Se houver outros dados fixos do agente, adicione aqui -->
+    <table class="table table-sm">
+      <tbody>
+        <tr>
+          <td class="label">Nome do Agente</td>
+          <td class="value">{{agent.name}}</td>
+        </tr>
+      </tbody>
     </table>
 
-    <!-- Agora iteramos sobre todas as fases (pai + filhos) -->
+    {{!-- Percorre cada fase dentro de "phases" --}}
     {{#each phases}}
+      {{!-- Exibe o nome da fase (ou "Fase de Inscrições" para a primeira) --}}
       <div class="section-title">
         {{#if @first}}
-          <!-- Primeiro bloco → sempre “Fase de inscrições” -->
-          Fase de inscrições
+          Fase de Inscrições
         {{else}}
-          <!-- Blocos seguintes → “FASE: nomeReal” -->
-          FASE: {{this.name}}
+          {{this.name}}
         {{/if}}
       </div>
-      <table>
-        {{#if this.rows.length}}
-          {{!-- Para cada { label, value } em this.rows --}}
+
+      <!--
+        1) Tabela de Campos da Fase (metadados estáticos)
+      -->
+      <table class="table table-striped table-sm mb-3">
+        <thead class="table-light">
+          <tr>
+            <th class="label">Campo</th>
+            <th class="value">Valor</th>
+          </tr>
+        </thead>
+        <tbody>
           {{#each this.rows}}
             <tr>
-              <td class="label">{{this.label}}</td>
-              <td class="value">{{{this.value}}}</td>
-              <!-- usamos triple-stache {{{this.value}}} para quebras de linha <br/> -->
+              <td>{{this.label}}</td>
+              <td>{{{this.value}}}</td>
             </tr>
           {{/each}}
-        {{else}}
-          <tr>
-            <td class="label" colspan="2"><em>Sem respostas para esta fase</em></td>
-          </tr>
-        {{/if}}
+        </tbody>
       </table>
+
+      <!--
+        2) Tabela de Avaliação (Análise de Mérito):
+        a) Lista todos os critérios
+        b) Depois exibe "Parecer"
+        c) No final, exibe a linha "Total"
+      -->
+      {{#if this.evaluation.criteria.length}}
+        <div class="section-title">Análise de Mérito</div>
+
+        <table class="table table-bordered table-sm mb-2">
+          <thead class="table-light">
+            <tr>
+              <th>Critério</th>
+              <th>Nota</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{!-- 2.1) Para cada critério numérico --}}
+            {{#each this.evaluation.criteria}}
+              <tr>
+                <td>{{this.label}}</td>
+                <td>{{this.score}}</td>
+              </tr>
+            {{/each}}
+
+            {{!-- 2.2) Linha de Total --}}
+            <tr>
+              <td><strong>Total</strong></td>
+              <td><strong>{{this.evaluation.total}}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+
+        {{!-- 2.3) Parecer (campo 'obs') --}}
+        {{#if this.evaluation.parecer}}
+          <div style="font-size:12px; margin-bottom: 16px;">
+            <strong>Parecer:</strong><br />
+            {{this.evaluation.parecer}}
+          </div>
+        {{/if}}
+      {{/if}}
     {{/each}}
   </body>
 </html>

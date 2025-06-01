@@ -134,7 +134,7 @@ function formatValue(raw) {
     if (parsed.every(x => typeof x === 'string' || typeof x === 'number')) {
       return parsed.map(x => String(x)).join('<br/>');
     }
-    // 5.5) Caso seja array de objetos → converte cada objeto em "chave: valor; chave2: valor2" e separa cada objeto com <br/><br/>
+    // 5.5) Caso seja array de objetos → converte cada objeto em "chave: valor; ..." e separa objetos com <br/><br/>
     if (parsed.every(x => x && typeof x === 'object' && !Array.isArray(x))) {
       const lines = parsed.map(obj => {
         const parts = [];
@@ -191,14 +191,7 @@ async function fetchChildrenExcludingNext(parentId) {
   }
 }
 
-// 6.3) Retorna o menor ID dentre os filhos (exceto parentId+1), ou null se não houver
-async function findFirstPhaseId(parentId) {
-  const children = await fetchChildrenExcludingNext(parentId);
-  if (children.length === 0) return null;
-  return children[0].id;
-}
-
-// 6.4) Busca todas as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
+// 6.3) Busca TODAS as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
 async function fetchAllRelevantPhases(parentId) {
   const client = await pool.connect();
   try {
@@ -216,7 +209,7 @@ async function fetchAllRelevantPhases(parentId) {
   }
 }
 
-// 6.5) Busca inscrições para uma fase (phaseId) → retorna:
+// 6.4) Busca inscrições para uma fase (phaseId) → retorna:
 //      [ { registration_id, registration_number, agent_id, agent_name }, … ]
 async function fetchRegistrationsForPhase(phaseId) {
   const client = await pool.connect();
@@ -239,7 +232,7 @@ async function fetchRegistrationsForPhase(phaseId) {
   }
 }
 
-// 6.6) Busca a inscrição‐pai associada a uma inscrição‐child, lendo
+// 6.5) Busca a inscrição‐pai associada a uma inscrição‐child, lendo
 //      previousPhaseRegistrationId de registration_meta. Retorna null se não achar.
 async function fetchParentRegistrationId(childRegistrationId) {
   const client = await pool.connect();
@@ -260,7 +253,7 @@ async function fetchParentRegistrationId(childRegistrationId) {
   }
 }
 
-// 6.7) Busca TODAS as respostas (registration_meta → registration_field_configuration)
+// 6.6) Busca TODAS as respostas (registration_meta → registration_field_configuration)
 //      de uma inscrição específica (regId), filtrando rm.key LIKE 'field_%' e
 //      rfc.opportunity_id ∈ phaseIds. Retorna um objeto { [phaseId]: [ {label,value}, … ] }
 //      em que cada array está ordenado por display_order.
@@ -301,6 +294,148 @@ async function fetchOrderedMetaForRegistration(regId, phaseIds) {
 }
 
 // ------------------------------------------------------------
+// 6.7) Busca, para uma fase (phaseId), a lista de critérios e títulos:
+//      a) Lê evaluation_method_configuration.id
+//      b) Lê evaluationmethodconfiguration_meta (key='sections')
+//      c) Extrai cada critério → [ { crit_id, crit_title }, … ]
+// ------------------------------------------------------------
+async function getCriteriaListForPhase(phaseId) {
+  const client = await pool.connect();
+  try {
+    // 1) Buscar evaluation_method_configuration.id
+    const q1 = `
+      SELECT id
+      FROM evaluation_method_configuration
+      WHERE opportunity_id = $1
+      LIMIT 1;
+    `;
+    const r1 = await client.query(q1, [phaseId]);
+    if (r1.rowCount === 0) {
+      return []; // não há configuração de avaliação nesta fase
+    }
+    const evalMethodConfigId = r1.rows[0].id;
+
+    // 2) Buscar JSON 'sections'
+    const q2 = `
+      SELECT value
+      FROM evaluationmethodconfiguration_meta
+      WHERE object_id = $1
+        AND key = 'sections'
+      LIMIT 1;
+    `;
+    const r2 = await client.query(q2, [evalMethodConfigId]);
+    if (r2.rowCount === 0) {
+      return [];
+    }
+
+    // 3) Parse do JSONB (se vier como string, dar JSON.parse)
+    let sectionsRaw = r2.rows[0].value;
+    if (typeof sectionsRaw === 'string') {
+      try {
+        sectionsRaw = JSON.parse(sectionsRaw);
+      } catch {
+        return [];
+      }
+    }
+
+    // 4) Flatten: de cada seção, pegar cada critério em sec.criteria[]
+    const criteriaList = [];
+    for (const sec of sectionsRaw) {
+      if (Array.isArray(sec.criteria)) {
+        for (const c of sec.criteria) {
+          // c.id → ex: "c-1726927579600"
+          // c.title → ex: "Qualidade técnico-artística"
+          criteriaList.push({
+            crit_id:    c.id,
+            crit_title: c.title
+          });
+        }
+      }
+    }
+    return criteriaList;
+
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * 6.8) Para um dado registration_id (regId) e fase (phaseId), retorna:
+ *      {
+ *        criteria: [ { label: crit_title, score: número }, … ],
+ *        parecer:  "...texto vindo de campo 'obs'...", 
+ *        total:    soma de todas as notas numéricas (somente chaves "c-")
+ *      }
+ */
+async function getEvaluationForRegistrationAndPhase(regNumber, phaseId) {
+  const client = await pool.connect();
+  try {
+    const q1 = `
+      SELECT re.evaluation_data
+      FROM registration_evaluation re
+      JOIN registration r
+        ON r.number = re.registration_id
+      WHERE re.registration_id = $1
+        AND r.opportunity_id    = $2
+      LIMIT 1;
+    `;
+    // Aqui PASSAMOS regNumber (VARCHAR) para $1, e phaseId (INTEGER) para $2.
+    const r1 = await client.query(q1, [regNumber, phaseId]);
+    if (r1.rowCount === 0) {
+      return { criteria: [], parecer: '', total: 0 };
+    }
+
+    let rawEval = r1.rows[0].evaluation_data;
+    if (typeof rawEval === 'string') {
+      try {
+        rawEval = JSON.parse(rawEval);
+      } catch {
+        rawEval = {};
+      }
+    }
+    if (!rawEval || typeof rawEval !== 'object') {
+      return { criteria: [], parecer: '', total: 0 };
+    }
+
+    // Agora filtramos somente as chaves "c-..." e capturamos "obs"
+    const numericPairs = [];
+    let parecerText = '';
+    let totalScore  = 0;
+
+    for (const key of Object.keys(rawEval)) {
+      if (key === 'obs') {
+        parecerText = String(rawEval[key]);
+      } else if (key.startsWith('c-')) {
+        const v = rawEval[key];
+        const num = Number(v);
+        if (!isNaN(num)) {
+          numericPairs.push({ crit_id: key, score: num });
+          totalScore += num;
+        }
+      }
+      // ignorar "uid", "status", ou qualquer outra chave
+    }
+
+    const criteriaList = await getCriteriaListForPhase(phaseId);
+    const resultCriteria = numericPairs.map(p => {
+      const found = criteriaList.find(c => c.crit_id === p.crit_id);
+      return {
+        label: found ? found.crit_title : p.crit_id,
+        score: p.score
+      };
+    });
+
+    return {
+      criteria: resultCriteria,
+      parecer:  parecerText || '',
+      total:    totalScore
+    };
+  } finally {
+    client.release();
+  }
+}
+
+// ------------------------------------------------------------
 // 7) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
 // ------------------------------------------------------------
 async function htmlToPdfBuffer(html) {
@@ -324,20 +459,54 @@ async function htmlToPdfBuffer(html) {
 // 8) Geração de fichas para um parentId
 // ------------------------------------------------------------
 async function generateFichas(parentId) {
-  // 8.1) Identifica a “primeira fase filha” (menor ID dentre filhos ≠ parentId+1)
-  const firstPhaseId = await findFirstPhaseId(parentId);
-  if (!firstPhaseId) {
-    throw new Error(`Nenhuma fase-filho válida encontrada para parentId=${parentId}`);
+  // 8.1) Buscar todos os filhos (exceto parentId+1)
+  const children = await fetchChildrenExcludingNext(parentId);
+
+  // 8.2) Encontrar, entre os filhos, a primeira fase com inscrições
+  let chosenPhaseId = null;
+  let registrations  = [];
+  for (const child of children) {
+    const regs = await fetchRegistrationsForPhase(child.id);
+    if (regs.length > 0) {
+      chosenPhaseId = child.id;
+      registrations  = regs;
+      break;
+    }
   }
 
-  // 8.2) Carrega TODAS as fases relevantes: 
-  //      [ {id:parentId, name:…}, {id:filho1, name:…}, … ]
-  const phases = await fetchAllRelevantPhases(parentId);
+  // 8.3) Se nenhum filho tiver inscrições, tentar no próprio parentId
+  if (!chosenPhaseId) {
+    const regsParent = await fetchRegistrationsForPhase(parentId);
+    if (regsParent.length > 0) {
+      chosenPhaseId = parentId;
+      registrations  = regsParent;
+    }
+  }
 
-  // 8.3) Busca as inscrições SÓ da “firstPhaseId”
-  const registrations = await fetchRegistrationsForPhase(firstPhaseId);
+  // 8.4) Se ainda não encontrou, erro
+  if (!chosenPhaseId) {
+    throw new Error(`Nenhuma inscrição encontrada para parentId=${parentId}`);
+  }
 
-  // 8.4) Garante que OUTPUT_DIR exista e cria placeholder
+  // 8.5) Carregar TODAS as fases relevantes (pai + filhos exceto parentId+1)
+  let phases = await fetchAllRelevantPhases(parentId);
+  if (!phases.length) {
+    // fallback: ao menos colocar o próprio parentId
+    const client = await pool.connect();
+    try {
+      const r = await client.query(
+        `SELECT id,name FROM opportunity WHERE id = $1 LIMIT 1;`,
+        [parentId]
+      );
+      if (r.rowCount) {
+        phases = [{ id: r.rows[0].id, name: r.rows[0].name }];
+      }
+    } finally {
+      client.release();
+    }
+  }
+
+  // 8.6) Garante que OUTPUT_DIR exista e cria placeholder
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   }
@@ -348,30 +517,29 @@ async function generateFichas(parentId) {
 
   const pdfFilenames = [];
 
-  // 8.5) Para cada inscrição da primeira fase (child), processa:
+  // 8.7) Para cada inscrição encontrada na fase escolhida, processa:
   for (const reg of registrations) {
     const regNumber = reg.registration_number || reg.registration_id;
 
-    // 8.5.1) Descobre parentRegistrationId via previousPhaseRegistrationId
+    // 8.7.1) Descobre parentRegistrationId via previousPhaseRegistrationId
     const parentRegId = await fetchParentRegistrationId(reg.registration_id);
 
-    // 8.5.2) Busca meta do PAI (phaseId = parentId) se existir
+    // 8.7.2) Montar array de metadados do PAI (caso exista)
     let parentMetaArray = [];
     if (parentRegId) {
       const parentGrouped = await fetchOrderedMetaForRegistration(parentRegId, [parentId]);
       const rawParentArray = parentGrouped[parentId] || [];
-      // Aplica formatValue a cada valor
       parentMetaArray = rawParentArray.map(item => ({
         label: item.label,
         value: formatValue(item.value)
       }));
     }
 
-    // 8.5.3) Busca meta do CHILD e demais fases-filhas
-    const allPhaseIds = phases.map(p => p.id);
+    // 8.7.3) Buscar meta do CHILD e demais fases-filhas
+    const allPhaseIds    = phases.map(p => p.id);
     const allMetaGrouped = await fetchOrderedMetaForRegistration(reg.registration_id, allPhaseIds);
 
-    // Formata cada array por fase-filho:
+    // Formatar cada array de metadados por fase (exceto parentId)
     const childMetaArrays = {};
     for (const phase of phases) {
       if (phase.id === parentId) continue;
@@ -382,24 +550,30 @@ async function generateFichas(parentId) {
       }));
     }
 
-    // 8.5.4) Monta dataPhases, cada elemento { id, name, rows }
-    const dataPhases = phases.map((phase, idx) => {
-      if (idx === 0) {
-        return {
-          id:   phase.id,
-          name: phase.name,
-          rows: parentMetaArray
-        };
-      } else {
-        return {
-          id:   phase.id,
-          name: phase.name,
-          rows: childMetaArrays[phase.id] || []
-        };
-      }
-    });
+    // 8.7.4) Montar dataPhases: cada elemento { id, name, rows, evaluation }
+    const dataPhases = [];
+    for (let idx = 0; idx < phases.length; idx++) {
+      const phase = phases[idx];
+      const rowsForThisPhase = (idx === 0)
+        ? parentMetaArray
+        : (childMetaArrays[phase.id] || []);
 
-    // 8.5.5) Monta objeto “data” e inclui logoBase64
+      // 8.7.4.1) Buscar avaliação (critérios + parecer + total)
+      const evalObj = await getEvaluationForRegistrationAndPhase(
+        reg.registration_id,
+        phase.id
+      );
+      // evalObj = { criteria: [ {label,score}, … ], parecer: "...", total: 42 }
+
+      dataPhases.push({
+        id:         phase.id,
+        name:       phase.name,
+        rows:       rowsForThisPhase,
+        evaluation: evalObj
+      });
+    }
+
+    // 8.7.5) Montar objeto “data” e incluir logoBase64
     const data = {
       registration_number: regNumber,
       agent: {
@@ -410,7 +584,7 @@ async function generateFichas(parentId) {
       logoBase64: logoBase64
     };
 
-    // 8.5.6) Renderiza HTML
+    // 8.7.6) Renderizar HTML
     let html;
     try {
       html = template(data);
@@ -419,7 +593,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 8.5.7) Converte HTML em PDF
+    // 8.7.7) Converter HTML em PDF
     let pdfBuffer;
     try {
       pdfBuffer = await htmlToPdfBuffer(html);
@@ -428,7 +602,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 8.5.8) Salva o PDF em OUTPUT_DIR
+    // 8.7.8) Salvar o PDF em OUTPUT_DIR
     const filename = `ficha_${parentId}_${regNumber}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
@@ -440,7 +614,7 @@ async function generateFichas(parentId) {
     }
   }
 
-  // 8.6) Empacota todos os PDFs num ZIP e retorna o nome
+  // 8.8) Empacota todos os PDFs num ZIP e retorna o nome
   const zipFilename = `fichas_${parentId}.zip`;
   const zipFilepath = path.join(OUTPUT_DIR, zipFilename);
   const output = fs.createWriteStream(zipFilepath);
@@ -464,7 +638,7 @@ async function generateFichas(parentId) {
 }
 
 // ------------------------------------------------------------
-// 9) Configuração do Express
+// 9) Configuração do Express (rotas / e /generate)
 // ------------------------------------------------------------
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -473,8 +647,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/downloads', express.static(OUTPUT_DIR));
 
 ////////////////////////////////////////////////////////////////////////////////
-// GET / → formulário com <select> apenas de oportunidades-pai
-//          + Bootstrap + logo centralizada + loading button
+// GET / → formulário com <select> de oportunidades-pai + Bootstrap + logo
 ////////////////////////////////////////////////////////////////////////////////
 app.get('/', async (req, res) => {
   let parents = [];
@@ -497,7 +670,7 @@ app.get('/', async (req, res) => {
   <head>
     <meta charset="UTF-8" />
     <title>Gerar Fichas de Inscrição</title>
-    <!-- Bootstrap CSS v5.3 (CDN) -->
+    <!-- Bootstrap CSS v5.3 -->
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css"
       rel="stylesheet"
@@ -523,7 +696,7 @@ app.get('/', async (req, res) => {
   <body class="bg-light">
     <div class="container">
 
-      <!-- Logo centralizada no topo -->
+      <!-- Logo centralizada -->
       <div class="row mb-4">
         <div class="col text-center logo-container">
           ${
@@ -559,7 +732,7 @@ app.get('/', async (req, res) => {
 
     </div>
 
-    <!-- Bootstrap JS v5.3 (bundle com Popper) e script de loading -->
+    <!-- Bootstrap JS v5.3 (bundle) e script de loading -->
     <script
       src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
       integrity="sha384-HoA5lDhr+tr1EBbk1nk4avourmQw519JfVLnLYhuwYSp7mKozZqDaVqGm2fZbuYj"
@@ -585,8 +758,7 @@ app.get('/', async (req, res) => {
 });
 
 ////////////////////////////////////////////////////////////////////////////////
-// POST /generate → gera as fichas para o parentId selecionado
-//                  → exibe página de resultado com botão download ZIP e lista PDFs
+// POST /generate → gera as fichas e mostra a página de resultado
 ////////////////////////////////////////////////////////////////////////////////
 app.post('/generate', async (req, res) => {
   const parentId = parseInt(req.body.parent, 10);
@@ -602,7 +774,7 @@ app.post('/generate', async (req, res) => {
     return res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');
   }
 
-  // Depois que o ZIP foi gerado, listamos todos os PDFs correspondentes:
+  // Após criar o ZIP, lista todos os PDFs gerados:
   let pdfFiles = [];
   try {
     pdfFiles = fs.readdirSync(OUTPUT_DIR).filter(fname => {
@@ -616,7 +788,6 @@ app.post('/generate', async (req, res) => {
     console.error('Erro ao listar PDFs gerados:', err);
   }
 
-  // Monta lista de links para cada PDF
   const listPdfHtml = pdfFiles
     .map(fname => {
       return `
@@ -626,14 +797,14 @@ app.post('/generate', async (req, res) => {
     })
     .join('\n');
 
-  // Página de resultado: logo + botão de download do ZIP + lista de todos os PDFs
+  // Página de resultado com botão para baixar ZIP e lista de PDFs individuais
   const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Fichas Geradas</title>
-    <!-- Bootstrap CSS v5.3 (CDN) -->
+    <!-- Bootstrap CSS v5.3 -->
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css"
       rel="stylesheet"
@@ -673,9 +844,11 @@ app.post('/generate', async (req, res) => {
             <div class="card-body text-center">
               <h5 class="card-title mb-3">Fichas geradas para oportunidade ${parentId}</h5>
               <a href="/downloads/${zipFilename}" class="btn btn-success me-2">
-                Baixar todas as fichas (ZIP)
+                <i class="bi bi-download"></i> Baixar todas as fichas (ZIP)
               </a>
-              <a href="/" class="btn btn-secondary">← Voltar</a>
+              <a href="/" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> Voltar
+              </a>
             </div>
           </div>
 
@@ -692,7 +865,7 @@ app.post('/generate', async (req, res) => {
 
     </div>
 
-    <!-- Bootstrap JS v5.3 (Bundle com Popper) e ícones Bootstrap Icons (CDN) -->
+    <!-- Bootstrap JS v5.3 (bundle) e Bootstrap Icons -->
     <script
       src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
       integrity="sha384-HoA5lDhr+tr1EBbk1nk4avourmQw519JfVLnLYhuwYSp7mKozZqDaVqGm2fZbuYj"
