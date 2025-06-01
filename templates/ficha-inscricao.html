@@ -57,7 +57,9 @@
   <body>
     <!-- Logo -->
     <div class="logo">
-      <img src="file:///{{assetPath}}/logo.png" alt="Logo" />
+      {{#if logoBase64}}
+        <img src="data:image/png;base64,{{logoBase64}}" alt="Logo" />
+      {{/if}}
     </div>
 
     <!-- Título fixo para a fase-pai -->
