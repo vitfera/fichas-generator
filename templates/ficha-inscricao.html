@@ -4,9 +4,14 @@
     <meta charset="UTF-8" />
     <title>Ficha de Inscrição – {{registration_number}}</title>
     <style>
-      /* Importa Bootstrap para estilização básica no PDF */
-      @import url("https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css");
+      /* --------------------------------------------------
+         Injeta todo o CSS do Bootstrap local no PDF
+         -------------------------------------------------- */
+      {{{bootstrapCSS}}}
 
+      /* --------------------------------------------------
+         Estilos adicionais
+         -------------------------------------------------- */
       body {
         font-family: Arial, sans-serif;
         margin: 1cm;
@@ -51,6 +56,18 @@
       .value {
         width: 65%;
       }
+      .fw-bold {
+        font-weight: bold;
+      }
+      .mb-1 {
+        margin-bottom: 0.25rem;
+      }
+      .mb-2 {
+        margin-bottom: 0.5rem;
+      }
+      .mb-3 {
+        margin-bottom: 1rem;
+      }
       .footer {
         position: fixed;
         bottom: 1cm;
@@ -92,9 +109,7 @@
         {{/if}}
       </div>
 
-      <!--
-        1) Tabela de Campos da Fase (metadados estáticos)
-      -->
+      <!-- 1) Tabela de Campos da Fase (metadados estáticos) -->
       <table class="table table-striped table-sm mb-3">
         <thead class="table-light">
           <tr>
@@ -112,46 +127,69 @@
         </tbody>
       </table>
 
-      <!--
-        2) Tabela de Avaliação (Análise de Mérito):
-        a) Lista todos os critérios
-        b) Depois exibe "Parecer"
-        c) No final, exibe a linha "Total"
-      -->
-      {{#if this.evaluation.criteria.length}}
+      {{!-- 2) Bloco de Avaliação Técnica --}}
+      {{#if this.evaluation.hasTechnical}}
         <div class="section-title">Análise de Mérito</div>
 
-        <table class="table table-bordered table-sm mb-2">
-          <thead class="table-light">
-            <tr>
-              <th>Critério</th>
-              <th>Nota</th>
-            </tr>
-          </thead>
-          <tbody>
-            {{!-- 2.1) Para cada critério numérico --}}
-            {{#each this.evaluation.criteria}}
+        {{!-- Para cada seção técnica --}}
+        {{#each this.evaluation.sections}}
+          <div class="fw-bold mb-1">{{sectionTitle}}</div>
+          <table class="table table-bordered table-sm mb-2">
+            <thead class="table-light">
               <tr>
-                <td>{{this.label}}</td>
-                <td>{{this.score}}</td>
+                <th>Critério</th>
+                <th>Nota</th>
               </tr>
-            {{/each}}
+            </thead>
+            <tbody>
+              {{#each this.criteria}}
+                <tr>
+                  <td>{{this.label}}</td>
+                  <td>{{this.score}}</td>
+                </tr>
+              {{/each}}
+            </tbody>
+          </table>
+        {{/each}}
 
-            {{!-- 2.2) Linha de Total --}}
+        {{!-- Total de Pontuação, Status (da inscrição) e Parecer --}}
+        <table class="table table-bordered table-sm mb-3">
+          <tbody>
             <tr>
-              <td><strong>Total</strong></td>
-              <td><strong>{{this.evaluation.total}}</strong></td>
+              <td class="label"><strong>Total da Pontuação</strong></td>
+              <td class="value"><strong>{{this.evaluation.total}}</strong></td>
             </tr>
+            <tr>
+              <td class="label">Status</td>
+              <td class="value">{{this.regStatusText}}</td>
+            </tr>
+            {{#if this.evaluation.parecer}}
+              <tr>
+                <td class="label">Parecer</td>
+                <td class="value">{{this.evaluation.parecer}}</td>
+              </tr>
+            {{/if}}
           </tbody>
         </table>
+      {{/if}}
 
-        {{!-- 2.3) Parecer (campo 'obs') --}}
-        {{#if this.evaluation.parecer}}
-          <div style="font-size:12px; margin-bottom: 16px;">
-            <strong>Parecer:</strong><br />
-            {{this.evaluation.parecer}}
-          </div>
-        {{/if}}
+      {{!-- 3) Bloco de Avaliação Simplificada (quando não houver técnica) --}}
+      {{#if this.evaluation.hasSimplified}}
+        <div class="section-title">Avaliação Simplificada</div>
+        <table class="table table-bordered table-sm mb-3">
+          <tbody>
+            <tr>
+              <td class="label">Status</td>
+              <td class="value">{{this.regStatusText}}</td>
+            </tr>
+            {{#if this.evaluation.parecer}}
+              <tr>
+                <td class="label">Parecer</td>
+                <td class="value">{{this.evaluation.parecer}}</td>
+              </tr>
+            {{/if}}
+          </tbody>
+        </table>
       {{/if}}
     {{/each}}
   </body>

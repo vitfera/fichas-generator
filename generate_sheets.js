@@ -2,29 +2,17 @@
  * generate_sheets.js
  *
  * Serviço HTTP para gerar fichas de inscrição em PDF de uma oportunidade pai
- * incluindo todas as suas fases-filhas (exceto “Publicação final do resultado”).
- * Os campos em cada fase são listados segundo o display_order, e valores
- * que forem arrays JSON são formatados para exibição legível, assim como datas
- * "YYYY-MM-DD" são convertidas para "DD/MM/YYYY". O logo é embutido como Base64
- * para não depender de file:// no Puppeteer.
+ * incluindo todas as fases-filhas (exceto “parentId+1”).
+ * Avaliações técnicas (type = 'technical') exibem:
+ *   - Seções + Critérios + Nota
+ *   - Total, Status e Parecer
  *
- * URLs suportadas:
- *   GET  /         → exibe formulário de seleção de oportunidade e logo com Bootstrap
- *   POST /generate → gera os PDFs, empacota em ZIP, e exibe página de resultado
+ * Carrega Bootstrap local (assets/css/bootstrap.min.css e assets/js/bootstrap.bundle.min.js).
+ * Para a fase pai, usa sempre o ID da inscrição‐pai (previousPhaseRegistrationId) 
+ * ao buscar registration_evaluation para avaliação técnica.
  *
- * Antes de executar, crie .env contendo:
- *   DB_HOST=localhost
- *   DB_PORT=5432
- *   DB_USER=mapas
- *   DB_PASSWORD=mapas
- *   DB_NAME=mapas
- *   OUTPUT_DIR=./output
- *   SERVER_PORT=4444
- *
- * Garanta também que existam:
- *   - ./assets/logo.png
- *   - ./templates/ficha-inscricao.html
- *   - ./output (pasta para arquivos gerados)
+ * .env deve conter:
+ *   DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, OUTPUT_DIR, SERVER_PORT
  */
 
 require('dotenv').config();
@@ -35,6 +23,17 @@ const { Pool }   = require('pg');
 const Handlebars = require('handlebars');
 const puppeteer  = require('puppeteer-core');
 const archiver   = require('archiver');
+
+// ------------------------------------------------------------
+// 0) Mapeamento de IDs de status → texto
+// ------------------------------------------------------------
+const STATUS_LABELS = {
+  0:  'Não avaliada',
+  2:  'Inválida',
+  3:  'Não selecionada',
+  8:  'Suplente',
+  10: 'Selecionada'
+};
 
 // ------------------------------------------------------------
 // 1) Configuração do banco a partir do .env
@@ -56,19 +55,10 @@ const pool = new Pool({
 });
 
 // ------------------------------------------------------------
-// 2) Helpers Handlebars (para o template PDF)
+// 2) Helper Handlebars mínimo
 // ------------------------------------------------------------
 Handlebars.registerHelper('get', (obj, key) => {
   return (obj && obj[key] !== undefined) ? obj[key] : '';
-});
-Handlebars.registerHelper('keys', (obj) => {
-  if (obj && typeof obj === 'object') {
-    return Object.keys(obj);
-  }
-  return [];
-});
-Handlebars.registerHelper('lookup', (obj, field) => {
-  return (obj && obj[field] !== undefined) ? obj[field] : '';
 });
 
 // ------------------------------------------------------------
@@ -83,25 +73,34 @@ const templateSource = fs.readFileSync(templatePath, 'utf-8');
 const template       = Handlebars.compile(templateSource);
 
 // ------------------------------------------------------------
-// 4) Lê o logo.png e converte para Base64 (para permitir <img data:…>)
+// 4) Lê o Bootstrap CSS (para embutir) e o logo.png em Base64
 // ------------------------------------------------------------
 const assetPath = path.join(__dirname, 'assets');
+
+// 4.1) Bootstrap CSS
+let bootstrapCSS = '';
+try {
+  bootstrapCSS = fs.readFileSync(path.join(assetPath, 'css', 'bootstrap.min.css'), 'utf-8');
+} catch (err) {
+  console.warn('Atenção: não foi possível ler assets/css/bootstrap.min.css. O PDF poderá ficar sem estilos.');
+}
+
+// 4.2) Logo em Base64
 let logoBase64 = '';
 try {
   const logoBuffer = fs.readFileSync(path.join(assetPath, 'logo.png'));
   logoBase64 = logoBuffer.toString('base64');
 } catch (err) {
   console.warn('Atenção: não foi possível ler assets/logo.png para incorporar no PDF.');
-  // logoBase64 ficará vazio → template exibirá vazio se não houver logo
 }
 
 // ------------------------------------------------------------
-// 5) Função para formatar valores: datas e JSON-arrays
+// 5) Formatação de valores: datas e JSON-arrays
 // ------------------------------------------------------------
 function formatValue(raw) {
   if (raw == null) return '';
 
-  // 5.1) Se for string no formato YYYY-MM-DD, converte para DD/MM/YYYY
+  // 5.1) Se for string “YYYY-MM-DD”
   if (typeof raw === 'string') {
     const isoDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (isoDateMatch) {
@@ -109,8 +108,7 @@ function formatValue(raw) {
       return `${day}/${month}/${year}`;
     }
   }
-
-  // 5.2) Se for string no formato YYYY-MM-DDTHH:MM:SSZ, converte para "DD/MM/YYYY HH:MM:SS"
+  // 5.2) Se for string “YYYY-MM-DDTHH:MM:SSZ”
   const isoDateTimeMatch = typeof raw === 'string'
     ? raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}:\d{2}:\d{2})/)
     : null;
@@ -118,8 +116,7 @@ function formatValue(raw) {
     const [, year, month, day, time] = isoDateTimeMatch;
     return `${day}/${month}/${year} ${time}`;
   }
-
-  // 5.3) Tenta parsear como JSON
+  // 5.3) Tenta fazer JSON.parse(raw)
   let parsed;
   if (typeof raw === 'string') {
     try {
@@ -128,13 +125,12 @@ function formatValue(raw) {
       parsed = null;
     }
   }
-
   if (Array.isArray(parsed)) {
-    // 5.4) Caso seja array de strings ou números → junta com <br/>
+    // 5.4) Array de strings/números
     if (parsed.every(x => typeof x === 'string' || typeof x === 'number')) {
       return parsed.map(x => String(x)).join('<br/>');
     }
-    // 5.5) Caso seja array de objetos → converte cada objeto em "chave: valor; ..." e separa objetos com <br/><br/>
+    // 5.5) Array de objetos: “chave: valor; ...”
     if (parsed.every(x => x && typeof x === 'object' && !Array.isArray(x))) {
       const lines = parsed.map(obj => {
         const parts = [];
@@ -147,8 +143,7 @@ function formatValue(raw) {
       return lines.join('<br/><br/>');
     }
   }
-
-  // 5.6) Senão, retorna o raw como string simples
+  // 5.6) Senão, converte para string simples
   return String(raw);
 }
 
@@ -156,7 +151,7 @@ function formatValue(raw) {
 // 6) Funções de acesso ao banco
 // ------------------------------------------------------------
 
-// 6.1) Lista todas as oportunidades‐pai (parent_id IS NULL), ordenadas por nome
+// 6.1) Lista todas as oportunidades‐pai (parent_id IS NULL)
 async function fetchParentOpportunities() {
   const client = await pool.connect();
   try {
@@ -173,7 +168,7 @@ async function fetchParentOpportunities() {
   }
 }
 
-// 6.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1, ordenados por ID
+// 6.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1
 async function fetchChildrenExcludingNext(parentId) {
   const client = await pool.connect();
   try {
@@ -191,7 +186,7 @@ async function fetchChildrenExcludingNext(parentId) {
   }
 }
 
-// 6.3) Busca TODAS as fases relevantes (pai + filhos exceto parentId+1), em ordem crescente de ID
+// 6.3) Busca TODAS as fases relevantes (pai + filhos exceto parentId+1)
 async function fetchAllRelevantPhases(parentId) {
   const client = await pool.connect();
   try {
@@ -209,8 +204,7 @@ async function fetchAllRelevantPhases(parentId) {
   }
 }
 
-// 6.4) Busca inscrições para uma fase (phaseId) → retorna:
-//      [ { registration_id, registration_number, agent_id, agent_name }, … ]
+// 6.4) Busca inscrições para uma fase (phaseId), incluindo o status
 async function fetchRegistrationsForPhase(phaseId) {
   const client = await pool.connect();
   try {
@@ -218,6 +212,7 @@ async function fetchRegistrationsForPhase(phaseId) {
       SELECT
         r.id     AS registration_id,
         r.number AS registration_number,
+        r.status AS registration_status,
         a.id     AS agent_id,
         a.name   AS agent_name
       FROM registration r
@@ -232,8 +227,7 @@ async function fetchRegistrationsForPhase(phaseId) {
   }
 }
 
-// 6.5) Busca a inscrição‐pai associada a uma inscrição‐child, lendo
-//      previousPhaseRegistrationId de registration_meta. Retorna null se não achar.
+// 6.5) Busca a inscrição‐pai associada a uma inscrição‐filho
 async function fetchParentRegistrationId(childRegistrationId) {
   const client = await pool.connect();
   try {
@@ -253,13 +247,8 @@ async function fetchParentRegistrationId(childRegistrationId) {
   }
 }
 
-// 6.6) Busca TODAS as respostas (registration_meta → registration_field_configuration)
-//      de uma inscrição específica (regId), filtrando rm.key LIKE 'field_%' e
-//      rfc.opportunity_id ∈ phaseIds. Retorna um objeto { [phaseId]: [ {label,value}, … ] }
-//      em que cada array está ordenado por display_order.
-//
-//      → regId    (inteiro)
-//      → phaseIds (array de inteiros)
+// 6.6) Busca TODAS as respostas (registration_meta) de uma inscrição (regId),
+//      para todas as fases listadas em phaseIds
 async function fetchOrderedMetaForRegistration(regId, phaseIds) {
   const client = await pool.connect();
   try {
@@ -294,26 +283,34 @@ async function fetchOrderedMetaForRegistration(regId, phaseIds) {
 }
 
 // ------------------------------------------------------------
-// 6.7) Busca, para uma fase (phaseId), a lista de critérios e títulos:
-//      a) Lê evaluation_method_configuration.id
-//      b) Lê evaluationmethodconfiguration_meta (key='sections')
-//      c) Extrai cada critério → [ { crit_id, crit_title }, … ]
+// 6.7) BUSCAR SEÇÕES E CRITÉRIOS PARA AVALIAÇÃO TÉCNICA
+//
+//     Para uma fase (phaseId), precisamos:
+//       1) encontrar o registro em evaluation_method_configuration
+//          com type = 'technical'
+//       2) a partir desse ID, pegar:
+//         - meta_key = 'sections'   → array de { id, name }
+//         - meta_key = 'criteria'   → array de { id, sid, title, min, max, weight }
+//     Retornamos um array de objetos: { id, name, criteria: [ { id, title, sid } … ] }
 // ------------------------------------------------------------
-async function getCriteriaListForPhase(phaseId) {
+async function getSectionsAndCriteriaForPhase(phaseId) {
   const client = await pool.connect();
   try {
-    // 1) Buscar evaluation_method_configuration.id
+    // 1) Buscar evaluation_method_configuration.id do tipo 'technical'
     const q1 = `
       SELECT id
       FROM evaluation_method_configuration
       WHERE opportunity_id = $1
+        AND type = 'technical'
       LIMIT 1;
     `;
     const r1 = await client.query(q1, [phaseId]);
     if (r1.rowCount === 0) {
-      return []; // não há configuração de avaliação nesta fase
+      console.log(`→ Fase ${phaseId}: não encontrou configuração type='technical'.`);
+      return [];
     }
     const evalMethodConfigId = r1.rows[0].id;
+    console.log(`→ Fase ${phaseId}: encontrou avaliação técnica (id=${evalMethodConfigId}).`);
 
     // 2) Buscar JSON 'sections'
     const q2 = `
@@ -325,67 +322,123 @@ async function getCriteriaListForPhase(phaseId) {
     `;
     const r2 = await client.query(q2, [evalMethodConfigId]);
     if (r2.rowCount === 0) {
+      console.log(`→ Fase ${phaseId}: configuração técnica sem 'sections'.`);
+      return [];
+    }
+    let sectionsRaw = r2.rows[0].value;
+    console.log(`→ Fase ${phaseId}: JSON bruto de 'sections':`, sectionsRaw);
+    try {
+      sectionsRaw = JSON.parse(sectionsRaw);
+    } catch (e) {
+      console.error(`→ Fase ${phaseId}: falha ao fazer JSON.parse(sectionsRaw).`, e);
+      return [];
+    }
+    if (!Array.isArray(sectionsRaw)) {
+      console.warn(`→ Fase ${phaseId}: 'sections' não é array após parse.`);
       return [];
     }
 
-    // 3) Parse do JSONB (se vier como string, dar JSON.parse)
-    let sectionsRaw = r2.rows[0].value;
-    if (typeof sectionsRaw === 'string') {
-      try {
-        sectionsRaw = JSON.parse(sectionsRaw);
-      } catch {
-        return [];
-      }
+    // 3) Buscar JSON 'criteria'
+    const q3 = `
+      SELECT value
+      FROM evaluationmethodconfiguration_meta
+      WHERE object_id = $1
+        AND key = 'criteria'
+      LIMIT 1;
+    `;
+    const r3 = await client.query(q3, [evalMethodConfigId]);
+    if (r3.rowCount === 0) {
+      console.log(`→ Fase ${phaseId}: configuração técnica sem 'criteria'.`);
+      // Retorna seções sem critérios associados
+      return sectionsRaw.map(sec => ({
+        id:       sec.id,
+        name:     sec.name,
+        criteria: []
+      }));
+    }
+    let criteriaRaw = r3.rows[0].value;
+    console.log(`→ Fase ${phaseId}: JSON bruto de 'criteria':`, criteriaRaw);
+    try {
+      criteriaRaw = JSON.parse(criteriaRaw);
+    } catch (e) {
+      console.error(`→ Fase ${phaseId}: falha ao fazer JSON.parse(criteriaRaw).`, e);
+      criteriaRaw = [];
+    }
+    if (!Array.isArray(criteriaRaw)) {
+      console.warn(`→ Fase ${phaseId}: 'criteria' não é array após parse.`);
+      criteriaRaw = [];
     }
 
-    // 4) Flatten: de cada seção, pegar cada critério em sec.criteria[]
-    const criteriaList = [];
-    for (const sec of sectionsRaw) {
-      if (Array.isArray(sec.criteria)) {
-        for (const c of sec.criteria) {
-          // c.id → ex: "c-1726927579600"
-          // c.title → ex: "Qualidade técnico-artística"
-          criteriaList.push({
-            crit_id:    c.id,
-            crit_title: c.title
-          });
-        }
-      }
-    }
-    return criteriaList;
+    // 4) Montar array final: para cada seção, filtrar apenas critérios cujo sid === seção.id
+    const result = sectionsRaw.map(sec => {
+      const critsForThisSection = criteriaRaw
+        .filter(c => c.sid === sec.id)
+        .map(c => ({
+          id:    c.id,
+          title: c.title,
+          sid:   c.sid
+        }));
+      return {
+        id:       sec.id,
+        name:     sec.name,
+        criteria: critsForThisSection
+      };
+    });
 
+    console.log(`→ Fase ${phaseId}: seções+critérios parseados:`, JSON.stringify(result, null, 2));
+    return result;
   } finally {
     client.release();
   }
 }
 
 /**
- * 6.8) Para um dado registration_id (regId) e fase (phaseId), retorna:
- *      {
- *        criteria: [ { label: crit_title, score: número }, … ],
- *        parecer:  "...texto vindo de campo 'obs'...", 
- *        total:    soma de todas as notas numéricas (somente chaves "c-")
- *      }
+ * getEvaluationForRegistrationAndPhase(regId, phaseId)
+ *
+ * Para uma inscrição (ID numérico) e uma fase, carregamos dados de registration_evaluation:
+ *   - Se for técnica (seções preenchidas), devolvemos seções + critérios + notas
+ *   - Senão, devolvemos total, status e parecer (simplificada)
+ *
+ * Retorna:
+ *   {
+ *     sections:      [ { sectionTitle, criteria: [ { label, score } ] } ],
+ *     status:        string,     // OBS: não será usado no template para técnica
+ *     parecer:       string,
+ *     total:         number,
+ *     hasTechnical:  boolean,
+ *     hasSimplified: boolean
+ *   }
  */
-async function getEvaluationForRegistrationAndPhase(regNumber, phaseId) {
+async function getEvaluationForRegistrationAndPhase(regId, phaseId) {
   const client = await pool.connect();
   try {
+    // 1) Ler o registro de evaluation_data
     const q1 = `
-      SELECT re.evaluation_data
+      SELECT
+        re.evaluation_data,
+        re.result AS total_score
       FROM registration_evaluation re
       JOIN registration r
-        ON r.number = re.registration_id
+        ON r.id = re.registration_id
       WHERE re.registration_id = $1
-        AND r.opportunity_id    = $2
+        AND r.opportunity_id = $2
       LIMIT 1;
     `;
-    // Aqui PASSAMOS regNumber (VARCHAR) para $1, e phaseId (INTEGER) para $2.
-    const r1 = await client.query(q1, [regNumber, phaseId]);
+    const r1 = await client.query(q1, [regId, phaseId]);
     if (r1.rowCount === 0) {
-      return { criteria: [], parecer: '', total: 0 };
+      console.log(`→ Inscrição ${regId} fase ${phaseId}: não há registro em registration_evaluation.`);
+      return {
+        sections:      [],
+        status:        '',
+        parecer:       '',
+        total:         0,
+        hasTechnical:  false,
+        hasSimplified: false
+      };
     }
 
     let rawEval = r1.rows[0].evaluation_data;
+    const totalScore = r1.rows[0].total_score || 0;
     if (typeof rawEval === 'string') {
       try {
         rawEval = JSON.parse(rawEval);
@@ -394,41 +447,64 @@ async function getEvaluationForRegistrationAndPhase(regNumber, phaseId) {
       }
     }
     if (!rawEval || typeof rawEval !== 'object') {
-      return { criteria: [], parecer: '', total: 0 };
-    }
-
-    // Agora filtramos somente as chaves "c-..." e capturamos "obs"
-    const numericPairs = [];
-    let parecerText = '';
-    let totalScore  = 0;
-
-    for (const key of Object.keys(rawEval)) {
-      if (key === 'obs') {
-        parecerText = String(rawEval[key]);
-      } else if (key.startsWith('c-')) {
-        const v = rawEval[key];
-        const num = Number(v);
-        if (!isNaN(num)) {
-          numericPairs.push({ crit_id: key, score: num });
-          totalScore += num;
-        }
-      }
-      // ignorar "uid", "status", ou qualquer outra chave
-    }
-
-    const criteriaList = await getCriteriaListForPhase(phaseId);
-    const resultCriteria = numericPairs.map(p => {
-      const found = criteriaList.find(c => c.crit_id === p.crit_id);
+      // caso não seja objeto válido, interpretamos como simplificado
+      const statusText  = rawEval.status ? String(rawEval.status) : '';
+      const parecerText = rawEval.obs ? String(rawEval.obs) : '';
       return {
-        label: found ? found.crit_title : p.crit_id,
-        score: p.score
+        sections:      [],
+        status:        statusText,
+        parecer:       parecerText,
+        total:         totalScore,
+        hasTechnical:  false,
+        hasSimplified: totalScore > 0
       };
-    });
+    }
+
+    const parecerText = rawEval.obs ? String(rawEval.obs) : '';
+    const statusText  = rawEval.status ? String(rawEval.status) : '';
+    console.log(`→ Inscrição ${regId} fase ${phaseId}: evaluation_data (parsed):`, rawEval);
+
+    // 2) Carrega seções e critérios desta fase
+    const technicalSections = await getSectionsAndCriteriaForPhase(phaseId);
+    const sections = [];
+
+    if (technicalSections.length) {
+      // para cada seção obtida, montamos { sectionTitle, criteria: [ { label, score } ] }
+      for (const sec of technicalSections) {
+        const secTitle = sec.name || '';
+        const critList = [];
+
+        // percorre cada critério da seção e pega a nota em rawEval[c.id]
+        for (const c of sec.criteria) {
+          const cid      = c.id;       // ex: "c-1741742846722"
+          const ctitle   = c.title || '';
+          const rawScore = rawEval[cid];
+          const score    = (rawScore !== undefined) ? (Number(rawScore) || 0) : 0;
+          critList.push({
+            label: ctitle,
+            score: score
+          });
+        }
+
+        sections.push({
+          sectionTitle: secTitle,
+          criteria: critList
+        });
+      }
+    }
+
+    const hasTechnical  = sections.length > 0;
+    const hasSimplified = !hasTechnical && totalScore > 0;
+
+    console.log(`→ Inscrição ${regId} fase ${phaseId}: hasTechnical=${hasTechnical}, hasSimplified=${hasSimplified}, totalScore=${totalScore}`);
 
     return {
-      criteria: resultCriteria,
-      parecer:  parecerText || '',
-      total:    totalScore
+      sections:      sections,
+      status:        statusText,   // não será usado para técnica, mas pode ser usado em outro cenário
+      parecer:       parecerText,
+      total:         totalScore,
+      hasTechnical:  hasTechnical,
+      hasSimplified: hasSimplified
     };
   } finally {
     client.release();
@@ -462,7 +538,7 @@ async function generateFichas(parentId) {
   // 8.1) Buscar todos os filhos (exceto parentId+1)
   const children = await fetchChildrenExcludingNext(parentId);
 
-  // 8.2) Encontrar, entre os filhos, a primeira fase com inscrições
+  // 8.2) Encontrar a primeira fase (pai ou filho) que tenha inscrições
   let chosenPhaseId = null;
   let registrations  = [];
   for (const child of children) {
@@ -473,7 +549,6 @@ async function generateFichas(parentId) {
       break;
     }
   }
-
   // 8.3) Se nenhum filho tiver inscrições, tentar no próprio parentId
   if (!chosenPhaseId) {
     const regsParent = await fetchRegistrationsForPhase(parentId);
@@ -482,16 +557,16 @@ async function generateFichas(parentId) {
       registrations  = regsParent;
     }
   }
-
   // 8.4) Se ainda não encontrou, erro
   if (!chosenPhaseId) {
     throw new Error(`Nenhuma inscrição encontrada para parentId=${parentId}`);
   }
+  console.log(`→ parentId=${parentId}: usando fase ${chosenPhaseId} para buscar inscrições.`);
 
-  // 8.5) Carregar TODAS as fases relevantes (pai + filhos exceto parentId+1)
+  // 8.5) Carrega TODAS as fases relevantes (pai + filhos exceto parentId+1)
   let phases = await fetchAllRelevantPhases(parentId);
   if (!phases.length) {
-    // fallback: ao menos colocar o próprio parentId
+    // fallback: coloca o próprio parentId
     const client = await pool.connect();
     try {
       const r = await client.query(
@@ -505,8 +580,9 @@ async function generateFichas(parentId) {
       client.release();
     }
   }
+  console.log(`→ parentId=${parentId}: fases relevantes:`, phases);
 
-  // 8.6) Garante que OUTPUT_DIR exista e cria placeholder
+  // 8.6) Criar OUTPUT_DIR e index.html placeholder
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   }
@@ -517,14 +593,16 @@ async function generateFichas(parentId) {
 
   const pdfFilenames = [];
 
-  // 8.7) Para cada inscrição encontrada na fase escolhida, processa:
+  // 8.7) Para cada inscrição da fase escolhida, gerar PDF
   for (const reg of registrations) {
     const regNumber = reg.registration_number || reg.registration_id;
+    console.log(`\n→ Gerando ficha para registration_number=${regNumber} (id=${reg.registration_id}).`);
 
-    // 8.7.1) Descobre parentRegistrationId via previousPhaseRegistrationId
+    // 8.7.1) Inscrição pai
     const parentRegId = await fetchParentRegistrationId(reg.registration_id);
+    console.log(`   → Inscrição pai (previousPhaseRegistrationId) = ${parentRegId}`);
 
-    // 8.7.2) Montar array de metadados do PAI (caso exista)
+    // 8.7.2) Montar array de metadados do PAI
     let parentMetaArray = [];
     if (parentRegId) {
       const parentGrouped = await fetchOrderedMetaForRegistration(parentRegId, [parentId]);
@@ -534,12 +612,12 @@ async function generateFichas(parentId) {
         value: formatValue(item.value)
       }));
     }
+    console.log(`   → Metadados do PAI:`, parentMetaArray);
 
     // 8.7.3) Buscar meta do CHILD e demais fases-filhas
     const allPhaseIds    = phases.map(p => p.id);
     const allMetaGrouped = await fetchOrderedMetaForRegistration(reg.registration_id, allPhaseIds);
 
-    // Formatar cada array de metadados por fase (exceto parentId)
     const childMetaArrays = {};
     for (const phase of phases) {
       if (phase.id === parentId) continue;
@@ -549,42 +627,54 @@ async function generateFichas(parentId) {
         value: formatValue(item.value)
       }));
     }
+    console.log(`   → Metadados das fases-filhas:`, childMetaArrays);
 
-    // 8.7.4) Montar dataPhases: cada elemento { id, name, rows, evaluation }
+    // 8.7.4) Determinar texto do status da inscrição
+    const numericStatus = reg.registration_status;
+    const regStatusText = STATUS_LABELS[numericStatus] || '';
+
+    // 8.7.5) Montar dataPhases: cada elemento { id, name, rows, evaluation, regStatusText }
     const dataPhases = [];
-    for (let idx = 0; idx < phases.length; idx++) {
-      const phase = phases[idx];
-      const rowsForThisPhase = (idx === 0)
+    for (const phase of phases) {
+      const rowsForThisPhase = (phase.id === parentId)
         ? parentMetaArray
         : (childMetaArrays[phase.id] || []);
 
-      // 8.7.4.1) Buscar avaliação (critérios + parecer + total)
+      // 8.7.5.1) Definir qual registration_id usar para buscar avaliação:
+      //        - Se for fase pai, usa parentRegId (se existir)
+      //        - Senão, usa o próprio reg.registration_id
+      const evalRegId = (phase.id === parentId && parentRegId)
+        ? parentRegId
+        : reg.registration_id;
+
       const evalObj = await getEvaluationForRegistrationAndPhase(
-        reg.registration_id,
+        evalRegId,
         phase.id
       );
-      // evalObj = { criteria: [ {label,score}, … ], parecer: "...", total: 42 }
+      console.log(`   → Avaliação fetched para inscrição ${evalRegId}, fase ${phase.id}:`, evalObj);
 
       dataPhases.push({
-        id:         phase.id,
-        name:       phase.name,
-        rows:       rowsForThisPhase,
-        evaluation: evalObj
+        id:             phase.id,
+        name:           phase.name,
+        rows:           rowsForThisPhase,
+        evaluation:     evalObj,
+        regStatusText:  regStatusText
       });
     }
 
-    // 8.7.5) Montar objeto “data” e incluir logoBase64
+    // 8.7.6) Montar objeto “data” e incluir logoBase64 + bootstrapCSS
     const data = {
       registration_number: regNumber,
       agent: {
         id:   reg.agent_id,
         name: reg.agent_name || '',
       },
-      phases:     dataPhases,
-      logoBase64: logoBase64
+      phases:       dataPhases,
+      logoBase64:   logoBase64,
+      bootstrapCSS: bootstrapCSS
     };
 
-    // 8.7.6) Renderizar HTML
+    // 8.7.7) Renderizar HTML via Handlebars
     let html;
     try {
       html = template(data);
@@ -593,7 +683,7 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 8.7.7) Converter HTML em PDF
+    // 8.7.8) Converter HTML em PDF
     let pdfBuffer;
     try {
       pdfBuffer = await htmlToPdfBuffer(html);
@@ -602,13 +692,13 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 8.7.8) Salvar o PDF em OUTPUT_DIR
+    // 8.7.9) Salvar o PDF em OUTPUT_DIR
     const filename = `ficha_${parentId}_${regNumber}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
       fs.writeFileSync(filepath, pdfBuffer);
       pdfFilenames.push(filename);
-      console.log(`PDF gerado: ${filename}`);
+      console.log(`   → PDF gerado: ${filename}`);
     } catch (err) {
       console.error(`Erro ao salvar PDF ${filename}:`, err);
     }
@@ -643,8 +733,9 @@ async function generateFichas(parentId) {
 const app = express();
 app.use(express.urlencoded({ extended: true }));
 
-// Servir estáticos em /downloads (PDFs e ZIP gerados)
+// Servir estáticos em /downloads (PDFs, ZIPs e assets)
 app.use('/downloads', express.static(OUTPUT_DIR));
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 ////////////////////////////////////////////////////////////////////////////////
 // GET / → formulário com <select> de oportunidades-pai + Bootstrap + logo
@@ -657,26 +748,18 @@ app.get('/', async (req, res) => {
     console.error('Erro ao buscar oportunidades-pai:', err);
   }
 
-  // Monta as <option> com todas as oportunidades-pai
   const optionsHtml = parents
     .map(row => `<option value="${row.id}">${row.name}</option>`)
     .join('\n');
 
-  // Monta HTML usando Bootstrap 5 (CDN). No topo, logo centralizada.
-  // Quando o usuário clicar em "Gerar Fichas", exibimos um spinner e desabilitamos o botão.
   const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Gerar Fichas de Inscrição</title>
-    <!-- Bootstrap CSS v5.3 -->
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-      integrity="sha384-9ndCyUa1zY3nWD0gqP7B7mYyt0ea3Q2Ua4H9z7NL0v5uyI6oBkP6eJzIvzhP1hxd"
-      crossorigin="anonymous"
-    />
+    <!-- Bootstrap CSS local -->
+    <link href="/assets/css/bootstrap.min.css" rel="stylesheet" />
     <style>
       body {
         padding-top: 40px;
@@ -695,7 +778,6 @@ app.get('/', async (req, res) => {
   </head>
   <body class="bg-light">
     <div class="container">
-
       <!-- Logo centralizada -->
       <div class="row mb-4">
         <div class="col text-center logo-container">
@@ -729,15 +811,9 @@ app.get('/', async (req, res) => {
           </div>
         </div>
       </div>
-
     </div>
 
-    <!-- Bootstrap JS v5.3 (bundle) e script de loading -->
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
-      integrity="sha384-HoA5lDhr+tr1EBbk1nk4avourmQw519JfVLnLYhuwYSp7mKozZqDaVqGm2fZbuYj"
-      crossorigin="anonymous"
-    ></script>
+    <script src="/assets/js/bootstrap.bundle.min.js"></script>
     <script>
       const form = document.getElementById('formGenerate');
       const btnSubmit = document.getElementById('btnSubmit');
@@ -797,20 +873,14 @@ app.post('/generate', async (req, res) => {
     })
     .join('\n');
 
-  // Página de resultado com botão para baixar ZIP e lista de PDFs individuais
   const html = `
 <!DOCTYPE html>
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
     <title>Fichas Geradas</title>
-    <!-- Bootstrap CSS v5.3 -->
-    <link
-      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/css/bootstrap.min.css"
-      rel="stylesheet"
-      integrity="sha384-9ndCyUa1zY3nWD0gqP7B7mYyt0ea3Q2Ua4H9z7NL0v5uyI6oBkP6eJzIvzhP1hxd"
-      crossorigin="anonymous"
-    />
+    <!-- Bootstrap CSS local -->
+    <link href="/assets/css/bootstrap.min.css" rel="stylesheet" />
     <style>
       body {
         padding-top: 40px;
@@ -826,7 +896,6 @@ app.post('/generate', async (req, res) => {
   </head>
   <body class="bg-light">
     <div class="container">
-
       <!-- Logo centralizada -->
       <div class="row mb-4">
         <div class="col text-center logo-container">
@@ -844,10 +913,10 @@ app.post('/generate', async (req, res) => {
             <div class="card-body text-center">
               <h5 class="card-title mb-3">Fichas geradas para oportunidade ${parentId}</h5>
               <a href="/downloads/${zipFilename}" class="btn btn-success me-2">
-                <i class="bi bi-download"></i> Baixar todas as fichas (ZIP)
+                Baixar todas as fichas (ZIP)
               </a>
               <a href="/" class="btn btn-secondary">
-                <i class="bi bi-arrow-left"></i> Voltar
+                Voltar
               </a>
             </div>
           </div>
@@ -865,16 +934,7 @@ app.post('/generate', async (req, res) => {
 
     </div>
 
-    <!-- Bootstrap JS v5.3 (bundle) e Bootstrap Icons -->
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.1/dist/js/bootstrap.bundle.min.js"
-      integrity="sha384-HoA5lDhr+tr1EBbk1nk4avourmQw519JfVLnLYhuwYSp7mKozZqDaVqGm2fZbuYj"
-      crossorigin="anonymous"
-    ></script>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
-    />
+    <script src="/assets/js/bootstrap.bundle.min.js"></script>
   </body>
 </html>
   `.trim();
