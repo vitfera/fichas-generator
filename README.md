@@ -13,8 +13,8 @@ A forma recomendada de executar esta aplicação é utilizando Docker e Docker C
 
 1. Clone este repositório:
    ```bash
-   git clone https://github.com/seu-usuario/mapas-fichas-pdf.git
-   cd mapas-fichas-pdf
+   git clone https://github.com/vitfera/fichas-generator.git
+   cd fichas-generator
    ```
 
 2. Ajuste as variáveis de ambiente no arquivo `.env` conforme necessário:
