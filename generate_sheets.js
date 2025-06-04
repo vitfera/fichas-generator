@@ -159,6 +159,7 @@ async function fetchParentOpportunities() {
       SELECT id, name
       FROM opportunity
       WHERE parent_id IS NULL
+      AND published_registrations
       ORDER BY name;
     `;
     const res = await client.query(query);
