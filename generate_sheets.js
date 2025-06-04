@@ -694,7 +694,25 @@ async function generateFichas(parentId) {
     }
 
     // 8.7.9) Salvar o PDF em OUTPUT_DIR
-    const filename = `ficha_${parentId}_${regNumber}.pdf`;
+    // Supondo que você tenha disponível em `reg`:
+    //   reg.registration_number (ou regNumber)
+    //   reg.agent_name
+
+    // 1) Normaliza o nome do agente para remover acentos
+    const nomeSemAcento = reg.agent_name
+      .normalize('NFD')                   // separa letras de seus diacríticos
+      .replace(/[\u0300-\u036f]/g, '')    // remove os diacríticos
+
+    // 2) Substitui espaços e caracteres inválidos por hífens
+    const nomeFormatado = nomeSemAcento
+      .trim()                             // remove espaços no início/fim
+      .toLowerCase()                      // (opcional) força minúsculas
+      .replace(/\s+/g, '-')               // espaços → hífen
+      .replace(/[^a-z0-9\-]/g, '');       // remove qualquer caractere não alfanumérico ou hífen
+
+    // 3) Monta o filename incluindo parentId, número de inscrição e nome do agente
+    const filename = `ficha_${parentId}_${regNumber}_${nomeFormatado}.pdf`;
+
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
       fs.writeFileSync(filepath, pdfBuffer);
