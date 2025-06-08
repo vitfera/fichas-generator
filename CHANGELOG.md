@@ -2,6 +2,22 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.2.0] - 2025-06-08
+
+### Adicionado
+- Suporte a anexos em PDF: agora os arquivos enviados pelo usuário são procurados em `<FILES_DIR>/<registration_id>` e mesclados ao final da ficha principal.  
+- Nova variável de ambiente `FILES_DIR` para parametrizar o caminho raiz dos diretórios de anexos.  
+- Integração da biblioteca [`pdf-lib`](https://github.com/Hopding/pdf-lib) para realizar a mesclagem de múltiplos PDFs.  
+- Logs de depuração (`console.log`) na função de geração para facilitar diagnóstico do caminho de anexos e lista de arquivos encontrados.
+
+### Ajustado
+- Função `generateFichas` estendida para:
+  - Validar a existência do diretório de anexos antes de tentar mesclar (`fs.existsSync`).
+  - Filtrar apenas arquivos com extensão `.pdf`.
+- Atualizado o `docker-compose.yml` para montar o volume de anexos em modo somente leitura.
+- Template Handlebars permanece inalterado, apenas recebe a lista de anexos via contexto.
+- Evita sobrescrever o PDF principal quando não há anexos disponíveis.
+
 ## [1.1.0] – 2025-06-08
 
 ### Adicionado

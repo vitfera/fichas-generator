@@ -16,6 +16,8 @@ services:
       - ./assets:/usr/src/app/assets
       # Mapeia a pasta de templates para dentro do container
       - ./templates:/usr/src/app/templates
+      # Mapeia a pasta de arquivos de inscrições
+      - /srv/mapas/docker-data/private-files/registration:/srv/mapas/docker-data/private-files/registration:ro
 
     ports:
       - "4444:4444"
