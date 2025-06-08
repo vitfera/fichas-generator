@@ -127,6 +127,25 @@
         </tbody>
       </table>
 
+      {{!-- 1.5) Bloco de Anexos (arquivos enviados) --}}
+      {{#if this.files}}
+        <div class="section-title">Anexos</div>
+        <table class="table table-sm mb-3">
+          <thead class="table-light">
+            <tr>
+              <th>Arquivo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{#each this.files}}
+              <tr>
+                <td>{{this}}</td>
+              </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      {{/if}}
+
       {{!-- 2) Bloco de Avaliação Técnica --}}
       {{#if this.evaluation.hasTechnical}}
         <div class="section-title">Análise de Mérito</div>

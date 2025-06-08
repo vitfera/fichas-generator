@@ -513,6 +513,27 @@ async function getEvaluationForRegistrationAndPhase(regId, phaseId) {
 }
 
 // ------------------------------------------------------------
+// 6.9) Busca os anexos (arquivos) enviados para uma inscrição e fase
+// ------------------------------------------------------------
+async function fetchFilesForRegistrationAndPhase(regId, phaseId) {
+  const client = await pool.connect();
+  try {
+    const res = await client.query(`
+      SELECT f.name AS file_name
+      FROM registration_file_configuration rfc
+      LEFT JOIN "file" f
+        ON f.grp       = CONCAT('rfc_', rfc.id)
+       AND f.object_id = $1
+      WHERE rfc.opportunity_id = $2
+      ORDER BY rfc.display_order, f.create_timestamp
+    `, [regId, phaseId]);
+    return res.rows.map(r => r.file_name).filter(n => n);
+  } finally {
+    client.release();
+  }
+}
+
+// ------------------------------------------------------------
 // 7) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
 // ------------------------------------------------------------
 async function htmlToPdfBuffer(html) {
@@ -654,12 +675,16 @@ async function generateFichas(parentId) {
       );
       console.log(`   → Avaliação fetched para inscrição ${evalRegId}, fase ${phase.id}:`, evalObj);
 
+      // carregar arquivos desta inscrição+fase
+      const files = await fetchFilesForRegistrationAndPhase(evalRegId, phase.id);
+
       dataPhases.push({
         id:             phase.id,
         name:           phase.name,
         rows:           rowsForThisPhase,
         evaluation:     evalObj,
-        regStatusText:  regStatusText
+        regStatusText:  regStatusText,
+        files:          files
       });
     }
 
