@@ -23,6 +23,21 @@ const { Pool }   = require('pg');
 const Handlebars = require('handlebars');
 const puppeteer  = require('puppeteer-core');
 const archiver   = require('archiver');
+const { PDFDocument } = require('pdf-lib');
+
+/**
+ * Junta o PDF gerado (buffer mainPdf) com uma lista de buffers de anexos.
+ * Retorna um único buffer de PDF.
+ */
+async function mergeWithAttachments(mainPdf, attachmentBuffers) {
+  const mainDoc = await PDFDocument.load(mainPdf);
+  for (const buf of attachmentBuffers) {
+    const attDoc = await PDFDocument.load(buf);
+    const copied = await mainDoc.copyPages(attDoc, attDoc.getPageIndices());
+    copied.forEach(page => mainDoc.addPage(page));
+  }
+  return mainDoc.save();
+}
 
 // ------------------------------------------------------------
 // 0) Mapeamento de IDs de status → texto
@@ -719,6 +734,25 @@ async function generateFichas(parentId) {
       continue;
     }
 
+    // 8.7.8.1) Procurar anexos em FILES_DIR/<registration_id>/*.pdf
+    const attachDir = path.join(FILES_DIR, String(reg.registration_id));
+    console.log(`→ Procurando anexos em: ${attachDir}`);
+    if (fs.existsSync(attachDir)) {
+      const pdfFiles = fs.readdirSync(attachDir).filter(f => f.toLowerCase().endsWith('.pdf'));
+      console.log(`→ PDFs encontrados:`, pdfFiles);
+      if (pdfFiles.length) {
+        const buffers = pdfFiles.map(f => fs.readFileSync(path.join(attachDir, f)));
+        try {
+          finalPdfBuffer = await mergeWithAttachments(pdfBuffer, buffers);
+          console.log(`→ Mesclados ${pdfFiles.length} anexos na ficha ${reg.registration_id}`);
+        } catch (e) {
+          console.error(`Erro ao mesclar anexos para reg=${reg.registration_id}:`, e);
+        }
+      }
+    } else {
+      console.warn(`→ Diretório de anexos não existe: ${attachDir}`);
+    }
+
     // 8.7.9) Salvar o PDF em OUTPUT_DIR
     // Supondo que você tenha disponível em `reg`:
     //   reg.registration_number (ou regNumber)
@@ -741,7 +775,7 @@ async function generateFichas(parentId) {
 
     const filepath = path.join(OUTPUT_DIR, filename);
     try {
-      fs.writeFileSync(filepath, pdfBuffer);
+      fs.writeFileSync(filepath, finalPdfBuffer);
       pdfFilenames.push(filename);
       console.log(`   → PDF gerado: ${filename}`);
     } catch (err) {
