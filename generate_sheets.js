@@ -45,6 +45,7 @@ const DB_PASSWORD = process.env.DB_PASSWORD || 'mapas';
 const DB_NAME     = process.env.DB_NAME     || 'mapas';
 const OUTPUT_DIR  = process.env.OUTPUT_DIR  || path.join(__dirname, 'output');
 const SERVER_PORT = parseInt(process.env.SERVER_PORT || '4444', 10);
+const FILES_DIR   = process.env.FILES_DIR   || '/srv/mapas/docker-data/private-files/registration';
 
 const pool = new Pool({
   host: DB_HOST,
