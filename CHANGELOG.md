@@ -2,6 +2,19 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.1.0] – 2025-06-08
+
+### Adicionado
+- Seção **Anexos** na ficha de inscrição, exibindo os arquivos enviados em cada fase.  
+- Função `fetchFilesForRegistrationAndPhase(regId, phaseId)` em `generate_sheets.js` para buscar e mapear anexos via `registration_file_configuration` e tabela `file`.  
+- Propriedade `files` incluída em cada objeto de fase (`dataPhases`) e passada para o template.
+
+### Alterado
+- Template `templates/ficha-inscricao.html` atualizado para renderizar a tabela de anexos:
+  - Bloco `{{#if this.files}} … {{/if}}` inserido logo após a tabela de metadados de cada fase.  
+- `generate_sheets.js`:
+  - Inclusão de chamada a `fetchFilesForRegistrationAndPhase` no laço de fases, atribuindo `files` a cada fase.  
+
 ## [1.0.0] - 2025-06-06
 
 ### Adicionado
