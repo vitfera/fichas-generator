@@ -29,14 +29,14 @@ const { PDFDocument } = require('pdf-lib');
  * Junta o PDF gerado (buffer mainPdf) com uma lista de buffers de anexos.
  * Retorna um único buffer de PDF.
  */
-async function mergeWithAttachments(mainPdf, attachmentBuffers) {
-  const mainDoc = await PDFDocument.load(mainPdf);
+async function mergeWithAttachments(mainBuffer, attachmentBuffers) {
+  const mergedPdf = await PDFDocument.load(mainBuffer);
   for (const buf of attachmentBuffers) {
-    const attDoc = await PDFDocument.load(buf);
-    const copied = await mainDoc.copyPages(attDoc, attDoc.getPageIndices());
-    copied.forEach(page => mainDoc.addPage(page));
+    const pdf = await PDFDocument.load(buf);
+    const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+    pages.forEach(page => mergedPdf.addPage(page));
   }
-  return mainDoc.save();
+  return mergedPdf.save();
 }
 
 // ------------------------------------------------------------
@@ -734,23 +734,29 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 8.7.8.1) Procurar anexos em FILES_DIR/<registration_id>/*.pdf
-    const attachDir = path.join(FILES_DIR, String(reg.registration_id));
-    console.log(`→ Procurando anexos em: ${attachDir}`);
-    if (fs.existsSync(attachDir)) {
-      const pdfFiles = fs.readdirSync(attachDir).filter(f => f.toLowerCase().endsWith('.pdf'));
-      console.log(`→ PDFs encontrados:`, pdfFiles);
-      if (pdfFiles.length) {
-        const buffers = pdfFiles.map(f => fs.readFileSync(path.join(attachDir, f)));
-        try {
-          finalPdfBuffer = await mergeWithAttachments(pdfBuffer, buffers);
-          console.log(`→ Mesclados ${pdfFiles.length} anexos na ficha ${reg.registration_id}`);
-        } catch (e) {
-          console.error(`Erro ao mesclar anexos para reg=${reg.registration_id}:`, e);
+    // 8.7.8.1) Reunir TODOS os anexos de cada fase e mesclar ao PDF principal
+    let finalPdfBuffer = pdfBuffer;
+    const attachmentBuffers = [];
+    const regFolder = path.join(FILES_DIR, String(reg.registration_id));
+
+    for (const phase of dataPhases) {
+      (phase.files || []).forEach(fileName => {
+        const filePath = path.join(regFolder, fileName);
+        if (fs.existsSync(filePath) && fileName.toLowerCase().endsWith('.pdf')) {
+          attachmentBuffers.push(fs.readFileSync(filePath));
         }
+      });
+    }
+
+    if (attachmentBuffers.length) {
+      try {
+        finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
+      } catch (e) {
+        console.error(
+          `Erro ao mesclar anexos para registration_id=${reg.registration_id}:`,
+          e
+        );
       }
-    } else {
-      console.warn(`→ Diretório de anexos não existe: ${attachDir}`);
     }
 
     // 8.7.9) Salvar o PDF em OUTPUT_DIR
