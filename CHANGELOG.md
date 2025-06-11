@@ -2,6 +2,13 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.2.1] - 2025-06-09
+
+### Corrigido
+- Lógica de mesclagem de anexos corrigida: agora percorre corretamente **todas as fases** usando `evalRegId` de cada fase, garantindo que **todos** os PDFs em `FILES_DIR/<evalRegId>` sejam incluídos no final da ficha.
+- Adicionado o campo `evalRegId` em cada elemento de `dataPhases` no `generate_sheets.js`, para referenciar cada inscrição/fase ao buscar a pasta de anexos.
+- Ajustado o bloco de mesclagem em `generate_sheets.js` para iterar sobre **todas** as pastas de anexos e mesclar buffers de arquivos PDF em um único documento final.
+
 ## [1.2.0] - 2025-06-08
 
 ### Adicionado
