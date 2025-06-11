@@ -700,7 +700,8 @@ async function generateFichas(parentId) {
         rows:           rowsForThisPhase,
         evaluation:     evalObj,
         regStatusText:  regStatusText,
-        files:          files
+        files:          files,
+        evalRegId:      evalRegId
       });
     }
 
@@ -734,28 +735,22 @@ async function generateFichas(parentId) {
       continue;
     }
 
-    // 8.7.8.1) Reunir TODOS os anexos de cada fase e mesclar ao PDF principal
-    let finalPdfBuffer = pdfBuffer;
+    // 8.7.8.1) Procurar TODOS os PDFs em FILES_DIR/<registration_id> e mesclar
     const attachmentBuffers = [];
-    const regFolder = path.join(FILES_DIR, String(reg.registration_id));
-
-    for (const phase of dataPhases) {
-      (phase.files || []).forEach(fileName => {
-        const filePath = path.join(regFolder, fileName);
-        if (fs.existsSync(filePath) && fileName.toLowerCase().endsWith('.pdf')) {
-          attachmentBuffers.push(fs.readFileSync(filePath));
-        }
-      });
+    for (const phaseData of dataPhases) {
+      const folder = path.join(FILES_DIR, String(phaseData.evalRegId));
+      if (!fs.existsSync(folder)) continue;
+      const pdfs = fs.readdirSync(folder).filter(f => f.toLowerCase().endsWith('.pdf'));
+      console.log(`→ anexos para reg=${phaseData.evalRegId}:`, pdfs);
+      for (const name of pdfs) {
+        attachmentBuffers.push(fs.readFileSync(path.join(folder, name)));
+      }
     }
-
     if (attachmentBuffers.length) {
       try {
         finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
       } catch (e) {
-        console.error(
-          `Erro ao mesclar anexos para registration_id=${reg.registration_id}:`,
-          e
-        );
+        console.error(`Erro mesclando anexos:`, e);
       }
     }
 
