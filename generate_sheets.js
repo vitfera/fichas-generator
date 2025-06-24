@@ -33,9 +33,9 @@ async function mergeWithAttachments(mainBuffer, attachmentBuffers) {
   const mergedPdf = await PDFDocument.load(mainBuffer);
   for (const buf of attachmentBuffers) {
     try {
-    const pdf = await PDFDocument.load(buf);
-    const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-    pages.forEach(page => mergedPdf.addPage(page));
+      const pdf = await PDFDocument.load(buf);
+      const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      pages.forEach(page => mergedPdf.addPage(page));
     } catch {
       console.warn('Arquivo anexo inválido, pulando...');
     }
@@ -763,8 +763,8 @@ async function generateFichas(parentId) {
         if (fs.existsSync(filePath) && !seenPaths.has(filePath)) {
           seenPaths.add(filePath);
           attachmentBuffers.push(fs.readFileSync(filePath));
+        }
       }
-    }
     }
 
     let finalPdfBuffer = pdfBuffer;
