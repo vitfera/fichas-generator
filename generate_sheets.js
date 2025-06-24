@@ -737,21 +737,28 @@ async function generateFichas(parentId) {
 
     // 8.7.8.1) Procurar TODOS os PDFs em FILES_DIR/<registration_id> e mesclar
     const attachmentBuffers = [];
+    const seenNames = new Set();
+
     for (const phaseData of dataPhases) {
       const folder = path.join(FILES_DIR, String(phaseData.evalRegId));
       if (!fs.existsSync(folder)) continue;
       const pdfs = fs.readdirSync(folder).filter(f => f.toLowerCase().endsWith('.pdf'));
+
       console.log(`→ anexos para reg=${phaseData.evalRegId}:`, pdfs);
+
       for (const name of pdfs) {
-        attachmentBuffers.push(fs.readFileSync(path.join(folder, name)));
+        if (seenNames.has(name)) continue;       // já adicionamos esse nome antes
+        seenNames.add(name);
+        attachmentBuffers.push(
+          fs.readFileSync(path.join(folder, name))
+        );
       }
     }
+
+    // agora mescla (e não esqueça de inicializar finalPdfBuffer)
+    let finalPdfBuffer = pdfBuffer;
     if (attachmentBuffers.length) {
-      try {
-        finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
-      } catch (e) {
-        console.error(`Erro mesclando anexos:`, e);
-      }
+      finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
     }
 
     // 8.7.9) Salvar o PDF em OUTPUT_DIR
