@@ -2,6 +2,13 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.2.2] - 2025-06-24
+
+### Corrigido
+- SQL de `fetchFilesForRegistrationAndPhase` ajustado para usar `LEFT JOIN LATERAL` e `ORDER BY id DESC LIMIT 1`, trazendo apenas o arquivo mais recente (maior `id`) para cada campo, evitando repetição de versões antigas.
+- Mesclagem de anexos reforçada com controle de nomes únicos (`Set`), garantindo que cada PDF seja incluído apenas uma vez.
+- Buffer inválido descartado: cada `PDFDocument.load(buf)` agora envolve `try/catch`, pulando automaticamente quaisquer arquivos sem cabeçalho PDF válido.
+
 ## [1.2.1] - 2025-06-09
 
 ### Corrigido

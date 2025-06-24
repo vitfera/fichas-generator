@@ -32,9 +32,13 @@ const { PDFDocument } = require('pdf-lib');
 async function mergeWithAttachments(mainBuffer, attachmentBuffers) {
   const mergedPdf = await PDFDocument.load(mainBuffer);
   for (const buf of attachmentBuffers) {
-    const pdf = await PDFDocument.load(buf);
-    const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-    pages.forEach(page => mergedPdf.addPage(page));
+    try {
+      const pdf = await PDFDocument.load(buf);
+      const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+      pages.forEach(page => mergedPdf.addPage(page));
+    } catch {
+      console.warn('Arquivo anexo inválido, pulando...');
+    }
   }
   return mergedPdf.save();
 }
@@ -537,13 +541,27 @@ async function fetchFilesForRegistrationAndPhase(regId, phaseId) {
     const res = await client.query(`
       SELECT f.name AS file_name
       FROM registration_file_configuration rfc
-      LEFT JOIN "file" f
-        ON f.grp       = CONCAT('rfc_', rfc.id)
-       AND f.object_id = $1
+      /* pega só o arquivo mais recente para cada campo */
+      LEFT JOIN LATERAL (
+        SELECT name
+        FROM "file"
+        WHERE grp       = CONCAT('rfc_', rfc.id)
+          AND object_id = $1
+        ORDER BY id DESC
+        LIMIT 1
+      ) f ON TRUE
       WHERE rfc.opportunity_id = $2
-      ORDER BY rfc.display_order, f.create_timestamp
+      ORDER BY rfc.display_order
     `, [regId, phaseId]);
-    return res.rows.map(r => r.file_name).filter(n => n);
+
+    // deduplica nomes
+    const unique = Array.from(new Set(
+      res.rows
+        .map(r => r.file_name)
+        .filter(n => n)   // remove nulls/undefined
+    ));
+
+    return unique;
   } finally {
     client.release();
   }
@@ -737,21 +755,21 @@ async function generateFichas(parentId) {
 
     // 8.7.8.1) Procurar TODOS os PDFs em FILES_DIR/<registration_id> e mesclar
     const attachmentBuffers = [];
+    const seenPaths = new Set();
+
     for (const phaseData of dataPhases) {
-      const folder = path.join(FILES_DIR, String(phaseData.evalRegId));
-      if (!fs.existsSync(folder)) continue;
-      const pdfs = fs.readdirSync(folder).filter(f => f.toLowerCase().endsWith('.pdf'));
-      console.log(`→ anexos para reg=${phaseData.evalRegId}:`, pdfs);
-      for (const name of pdfs) {
-        attachmentBuffers.push(fs.readFileSync(path.join(folder, name)));
+      for (const fileName of phaseData.files || []) {
+        const filePath = path.join(FILES_DIR, String(phaseData.evalRegId), fileName);
+        if (fs.existsSync(filePath) && !seenPaths.has(filePath)) {
+          seenPaths.add(filePath);
+          attachmentBuffers.push(fs.readFileSync(filePath));
+        }
       }
     }
+
+    let finalPdfBuffer = pdfBuffer;
     if (attachmentBuffers.length) {
-      try {
-        finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
-      } catch (e) {
-        console.error(`Erro mesclando anexos:`, e);
-      }
+      finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
     }
 
     // 8.7.9) Salvar o PDF em OUTPUT_DIR
