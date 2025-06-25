@@ -670,6 +670,18 @@ async function generateFichas(parentId) {
     }
     console.log(`   → Metadados do PAI:`, parentMetaArray);
 
+    // 8.7.2.5) PARA CADA FASE: determina o registration_id exato (pai ou filha)
+    const regIdsByPhase = {};
+    for (const phase of phases) {
+      const regsThisPhase = await fetchRegistrationsForPhase(phase.id);
+      // registra o mesmo agente (pela agent_id)
+      const match = regsThisPhase.find(r => r.agent_id === reg.agent_id);
+      // para a fase-pai use parentRegId se existir, senão o match
+      regIdsByPhase[phase.id] = (phase.id === parentId && parentRegId)
+        ? parentRegId
+        : (match ? match.registration_id : null);
+    }
+
     // 8.7.3) Buscar meta do CHILD e demais fases-filhas
     const allPhaseIds    = phases.map(p => p.id);
     const allMetaGrouped = await fetchOrderedMetaForRegistration(reg.registration_id, allPhaseIds);
@@ -699,9 +711,7 @@ async function generateFichas(parentId) {
       // 8.7.5.1) Definir qual registration_id usar para buscar avaliação:
       //        - Se for fase pai, usa parentRegId (se existir)
       //        - Senão, usa o próprio reg.registration_id
-      const evalRegId = (phase.id === parentId && parentRegId)
-        ? parentRegId
-        : reg.registration_id;
+      const evalRegId = regIdsByPhase[phase.id] || reg.registration_id;
 
       const evalObj = await getEvaluationForRegistrationAndPhase(
         evalRegId,
@@ -711,6 +721,7 @@ async function generateFichas(parentId) {
 
       // carregar arquivos desta inscrição+fase
       const files = await fetchFilesForRegistrationAndPhase(evalRegId, phase.id);
+      console.log(`→ [DEBUG] phase.id=${phase.id} (evalRegId=${evalRegId}) → files:`, files);
 
       dataPhases.push({
         id:             phase.id,
@@ -755,17 +766,25 @@ async function generateFichas(parentId) {
 
     // 8.7.8.1) Procurar TODOS os PDFs em FILES_DIR/<registration_id> e mesclar
     const attachmentBuffers = [];
-    const seenPaths = new Set();
+    const seen = new Set();
 
-    for (const phaseData of dataPhases) {
-      for (const fileName of phaseData.files || []) {
-        const filePath = path.join(FILES_DIR, String(phaseData.evalRegId), fileName);
-        if (fs.existsSync(filePath) && !seenPaths.has(filePath)) {
-          seenPaths.add(filePath);
-          attachmentBuffers.push(fs.readFileSync(filePath));
+    for (const phase of phases) {
+      const rId = regIdsByPhase[phase.id];
+      if (!rId) continue;
+      const folder = path.join(FILES_DIR, String(rId));
+      if (!fs.existsSync(folder)) continue;
+      for (const name of fs.readdirSync(folder).filter(f=>f.endsWith('.pdf'))) {
+        const p = path.join(folder, name);
+        if (!seen.has(p)) {
+          seen.add(p);
+          attachmentBuffers.push(fs.readFileSync(p));
         }
       }
     }
+
+    console.log(`→ Total de buffers de anexos após dedupe: ${attachmentBuffers.length}`);
+    console.log('→ [DEBUG] attachmentBuffers (antes de merge):', attachmentBuffers.map((_, i) => i));
+    console.log('→ [DEBUG] arquivos lidos do disco:', Array.from(seen));
 
     let finalPdfBuffer = pdfBuffer;
     if (attachmentBuffers.length) {
