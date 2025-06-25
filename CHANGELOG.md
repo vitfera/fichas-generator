@@ -2,6 +2,15 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.2.3] – 2025-06-25
+
+### Corrigido
+- Ajustada a lógica de mapeamento de `registration_id` por fase:
+  - Implementado `regIdsByPhase` para usar `previousPhaseRegistrationId` na fase pai e o `registration_id` correto de cada fase filha.
+- Refinado o laço de mesclagem de anexos:
+  - Agora percorre **todas** as fases relevantes (pai + filhas exceto `parentId+1`) usando `regIdsByPhase`, alinhando a busca de PDFs ao mesmo critério de fases da inscrição.
+  - Evita duplicações e assegura que apenas o arquivo mais recente de cada campo seja incluído.
+
 ## [1.2.2] - 2025-06-24
 
 ### Corrigido
