@@ -192,6 +192,7 @@ async function fetchParentOpportunities() {
       FROM opportunity
       WHERE parent_id IS NULL
       AND published_registrations
+      AND status = 1
       ORDER BY name;
     `;
     const res = await client.query(query);
