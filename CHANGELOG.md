@@ -2,6 +2,11 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.3.1] – 2025-12-09
+
+### Corrigido
+- Ajustada a busca apenas para oportunidades publicadas.
+
 ## [1.3.0] – 2025-07-15
 
 ### Adicionado
