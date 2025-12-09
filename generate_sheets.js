@@ -253,6 +253,7 @@ async function fetchRegistrationsForPhases(phaseIds) {
       FROM registration r
       LEFT JOIN agent a ON r.agent_id = a.id
       WHERE r.opportunity_id = ANY($1::int[])
+      AND r.status = 10
       ORDER BY r.opportunity_id, r.number;
     `;
     const res = await client.query(query, [phaseIds]);
