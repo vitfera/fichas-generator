@@ -192,6 +192,7 @@ async function fetchParentOpportunities() {
       FROM opportunity
       WHERE parent_id IS NULL
       AND published_registrations
+      AND status = 1
       ORDER BY name;
     `;
     const res = await client.query(query);
@@ -252,6 +253,7 @@ async function fetchRegistrationsForPhases(phaseIds) {
       FROM registration r
       LEFT JOIN agent a ON r.agent_id = a.id
       WHERE r.opportunity_id = ANY($1::int[])
+      AND r.status = 10
       ORDER BY r.opportunity_id, r.number;
     `;
     const res = await client.query(query, [phaseIds]);
@@ -607,24 +609,26 @@ async function generateFichas(parentId) {
   const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds);
   console.log(`→ Inscrições por fase carregadas em lote`);
   
-  // 8.3) Encontrar a primeira fase que tenha inscrições
+  // 8.3) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
   let chosenPhaseId = null;
   let registrations = [];
   
-  for (const child of children) {
-    const regs = registrationsByPhase[child.id] || [];
-    if (regs.length > 0) {
-      chosenPhaseId = child.id;
-      registrations = regs;
-      break;
-    }
+  // Primeiro tenta usar a fase pai
+  const regsParent = registrationsByPhase[parentId] || [];
+  if (regsParent.length > 0) {
+    chosenPhaseId = parentId;
+    registrations = regsParent;
   }
   
+  // Se a fase pai não tiver inscrições, usa a primeira filha que tiver
   if (!chosenPhaseId) {
-    const regsParent = registrationsByPhase[parentId] || [];
-    if (regsParent.length > 0) {
-      chosenPhaseId = parentId;
-      registrations = regsParent;
+    for (const child of children) {
+      const regs = registrationsByPhase[child.id] || [];
+      if (regs.length > 0) {
+        chosenPhaseId = child.id;
+        registrations = regs;
+        break;
+      }
     }
   }
   
