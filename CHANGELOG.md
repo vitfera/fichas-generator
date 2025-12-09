@@ -2,10 +2,21 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
-## [1.3.1] – 2025-12-09
+## [1.4.0] – 2025-12-09
 
 ### Corrigido
-- Ajustada a busca apenas para oportunidades publicadas.
+- Ajustada a busca de oportunidades para incluir apenas aquelas com `status = 1` (publicadas e ativas).
+- Corrigida a lógica de seleção de fase para priorizar a **fase pai** ao invés das fases filhas:
+  - Anteriormente, o sistema escolhia a primeira fase filha com inscrições, causando perda de dados quando nem todas as inscrições passavam por todas as fases (ex: fase de recursos).
+  - Agora, o sistema **sempre prioriza a fase pai (inscrição original)** que contém todas as inscrições base, garantindo que todas sejam processadas.
+  - Fases filhas só são utilizadas como fallback caso a fase pai não tenha inscrições.
+- Ajustado o filtro de inscrições para buscar apenas aquelas com `status = 10` (selecionadas).
+
+### Alterado
+- Inversão da prioridade na função `generateFichas()`:
+  - **Antes**: Iterava pelas fases filhas primeiro → se encontrasse inscrições, usava essa fase → só usava fase pai se nenhuma filha tivesse inscrições.
+  - **Depois**: Verifica fase pai primeiro → se tiver inscrições, usa a fase pai → só procura em fases filhas se a pai estiver vazia.
+- Esta mudança garante compatibilidade com editais que possuem fases opcionais (como recursos) que nem todos os inscritos percorrem.
 
 ## [1.3.0] – 2025-07-15
 
