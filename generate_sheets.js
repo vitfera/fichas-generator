@@ -239,7 +239,7 @@ async function fetchAllRelevantPhases(parentId) {
 }
 
 // 6.4) OTIMIZADO: Busca inscrições para múltiplas fases em uma única query
-async function fetchRegistrationsForPhases(phaseIds) {
+async function fetchRegistrationsForPhases(phaseIds, parentId) {
   const client = await pool.connect();
   try {
     const query = `
@@ -253,10 +253,10 @@ async function fetchRegistrationsForPhases(phaseIds) {
       FROM registration r
       LEFT JOIN agent a ON r.agent_id = a.id
       WHERE r.opportunity_id = ANY($1::int[])
-      AND r.status = 10
+      AND (r.opportunity_id != $2 OR r.status = 10)
       ORDER BY r.opportunity_id, r.number;
     `;
-    const res = await client.query(query, [phaseIds]);
+    const res = await client.query(query, [phaseIds, parentId]);
     
     // Agrupa por phase_id
     const grouped = {};
@@ -606,7 +606,7 @@ async function generateFichas(parentId) {
   
   // 8.2) Buscar inscrições para todas as fases de uma vez
   const phaseIds = [parentId, ...children.map(c => c.id)];
-  const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds);
+  const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId);
   console.log(`→ Inscrições por fase carregadas em lote`);
   
   // 8.3) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
@@ -664,8 +664,17 @@ async function generateFichas(parentId) {
   
   // 8.6) PRÉ-CARREGAMENTO MASSIVO DE DADOS EM LOTE
   console.log(`→ Pré-carregando TODOS os dados em lote...`);
-  const allRegIds = registrations.map(r => r.registration_id);
+  
+  // Coletar TODOS os IDs de registro de TODAS as fases (não apenas da fase escolhida)
+  const allRegIdsSet = new Set();
+  for (const phaseId of phaseIds) {
+    const regsInPhase = registrationsByPhase[phaseId] || [];
+    regsInPhase.forEach(r => allRegIdsSet.add(r.registration_id));
+  }
+  const allRegIds = Array.from(allRegIdsSet);
   const allPhaseIds = phases.map(p => p.id);
+  
+  console.log(`→ Total de IDs únicos para pré-carregar: ${allRegIds.length}`);
   
   // Carregar todos os dados em paralelo
   const [
@@ -700,9 +709,12 @@ async function generateFichas(parentId) {
     console.log(`\n→ [${i+1}/${registrations.length}] Processando ${regNumber}...`);
 
     // 8.7.1) Metadados do pai (pré-carregados)
+    // Se não tem parentRegId, é porque esta É a inscrição pai - usa o próprio ID
+    const actualParentRegId = parentRegId || reg.registration_id;
+    
     let parentMetaArray = [];
-    if (parentRegId && parentMetaData[parentRegId]) {
-      const rawParentArray = parentMetaData[parentRegId][parentId] || [];
+    if (actualParentRegId && allMetaData[actualParentRegId]) {
+      const rawParentArray = allMetaData[actualParentRegId][parentId] || [];
       parentMetaArray = rawParentArray.map(item => ({
         label: item.label,
         value: formatValue(item.value)
@@ -714,21 +726,24 @@ async function generateFichas(parentId) {
     for (const phase of phases) {
       const regsThisPhase = registrationsByPhase[phase.id] || [];
       const match = regsThisPhase.find(r => r.agent_id === reg.agent_id);
-      regIdsByPhase[phase.id] = (phase.id === parentId && parentRegId)
-        ? parentRegId
+      regIdsByPhase[phase.id] = (phase.id === parentId)
+        ? actualParentRegId
         : (match ? match.registration_id : null);
     }
 
     // 8.7.3) Processar dados das fases em paralelo
     const phasePromises = phases.map(async (phase) => {
+      // Para fase pai usa parentMetaArray, para filhas usa o regId correto de cada fase
+      const phaseRegId = regIdsByPhase[phase.id] || reg.registration_id;
+      
       const rowsForThisPhase = (phase.id === parentId)
         ? parentMetaArray
-        : ((allMetaData[reg.registration_id] && allMetaData[reg.registration_id][phase.id]) || []).map(item => ({
+        : ((allMetaData[phaseRegId] && allMetaData[phaseRegId][phase.id]) || []).map(item => ({
             label: item.label,
             value: formatValue(item.value)
           }));
 
-      const evalRegId = regIdsByPhase[phase.id] || reg.registration_id;
+      const evalRegId = phaseRegId;
       
       // Buscar avaliação e arquivos dos dados pré-carregados
       const evaluationKey = `${evalRegId}_${phase.id}`;
