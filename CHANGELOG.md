@@ -5,11 +5,17 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 ## [1.4.1] – 2025-12-11
 
 ### Corrigido
-- Corrigido problema onde dados da fase de inscrição (fase pai) não apareciam no PDF gerado.
-- Ajustado filtro de status para aplicar `status = 10` apenas na fase pai, permitindo que fases filhas aceitem todos os status.
-- Corrigida lógica de busca de metadados quando a inscrição não possui `previousPhaseRegistrationId` (inscrições na fase pai).
-- Quando a inscrição está na fase pai, o sistema agora usa `registration_id` diretamente ao invés de buscar um ID pai inexistente.
-- Garantida a exibição completa de dados mesmo para inscrições que passaram por fases opcionais (como recursos) com status diferentes.
+- Corrigido problema onde dados da fase de inscrição não apareciam no PDF.
+- Corrigido problema onde dados de fases filhas (recursos, habilitação, etc) não apareciam no PDF.
+- Filtro de `status = 10` agora aplicado apenas na fase pai, fases filhas aceitam todos os status.
+- Sistema usa `registration_id` diretamente quando a inscrição é da fase pai (sem `previousPhaseRegistrationId`).
+- Pré-carregamento de dados agora coleta IDs de TODAS as fases, não apenas da fase escolhida.
+
+### Técnico
+- Modificada função `fetchRegistrationsForPhases()` com filtro condicional por fase.
+- Implementada variável `actualParentRegId` para busca correta de metadados da fase pai.
+- Corrigida coleta de `allRegIds` para incluir todos os IDs de registro de todas as fases.
+- Ajustado uso de `phaseRegId` ao buscar metadados de fases filhas em `allMetaData`.
 
 ## [1.4.0] – 2025-12-09
 
