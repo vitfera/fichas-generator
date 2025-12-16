@@ -239,9 +239,25 @@ async function fetchAllRelevantPhases(parentId) {
 }
 
 // 6.4) OTIMIZADO: Busca inscrições para múltiplas fases em uma única query
-async function fetchRegistrationsForPhases(phaseIds, parentId) {
+async function fetchRegistrationsForPhases(phaseIds, parentId, filterType = 'selected') {
   const client = await pool.connect();
   try {
+    // Define o filtro de status baseado no filterType
+    let statusFilter;
+    switch(filterType) {
+      case 'selected':
+        statusFilter = 'r.status = 10';
+        break;
+      case 'selected_and_alternate':
+        statusFilter = 'r.status IN (8, 10)';
+        break;
+      case 'all':
+        statusFilter = 'r.status != 0';
+        break;
+      default:
+        statusFilter = 'r.status = 10';
+    }
+    
     const query = `
       SELECT
         r.id     AS registration_id,
@@ -253,7 +269,7 @@ async function fetchRegistrationsForPhases(phaseIds, parentId) {
       FROM registration r
       LEFT JOIN agent a ON r.agent_id = a.id
       WHERE r.opportunity_id = ANY($1::int[])
-      AND (r.opportunity_id != $2 OR r.status = 10)
+      AND (r.opportunity_id != $2 OR ${statusFilter})
       ORDER BY r.opportunity_id, r.number;
     `;
     const res = await client.query(query, [phaseIds, parentId]);
@@ -596,8 +612,8 @@ async function htmlToPdfBuffer(html) {
 // ------------------------------------------------------------
 // 8) Geração de fichas para um parentId - COMPLETAMENTE OTIMIZADA
 // ------------------------------------------------------------
-async function generateFichas(parentId) {
-  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId}`);
+async function generateFichas(parentId, filterType = 'selected') {
+  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId} (filtro: ${filterType})`);
   const startTime = Date.now();
   
   // 8.1) Buscar todos os filhos (exceto parentId+1)
@@ -606,7 +622,7 @@ async function generateFichas(parentId) {
   
   // 8.2) Buscar inscrições para todas as fases de uma vez
   const phaseIds = [parentId, ...children.map(c => c.id)];
-  const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId);
+  const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId, filterType);
   console.log(`→ Inscrições por fase carregadas em lote`);
   
   // 8.3) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
@@ -952,6 +968,15 @@ app.get('/', async (req, res) => {
                     ${optionsHtml}
                   </select>
                 </div>
+                <div class="mb-3">
+                  <label for="filterType" class="form-label">Filtrar inscrições:</label>
+                  <select name="filterType" id="filterType" class="form-select" required>
+                    <option value="selected">Apenas selecionadas (status 10)</option>
+                    <option value="selected_and_alternate">Selecionadas e suplentes (status 8 e 10)</option>
+                    <option value="all">Todas inscritas (exceto não avaliadas)</option>
+                  </select>
+                  <div class="form-text">Escolha quais inscrições devem ser incluídas nas fichas</div>
+                </div>
                 <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
                   <span id="btnText">Gerar Fichas</span>
                   <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
@@ -988,13 +1013,21 @@ app.get('/', async (req, res) => {
 ////////////////////////////////////////////////////////////////////////////////
 app.post('/generate', async (req, res) => {
   const parentId = parseInt(req.body.parent, 10);
+  const filterType = req.body.filterType || 'selected';
+  
   if (isNaN(parentId)) {
     return res.status(400).send('Oportunidade inválida.');
+  }
+  
+  // Validar filterType
+  const validFilters = ['selected', 'selected_and_alternate', 'all'];
+  if (!validFilters.includes(filterType)) {
+    return res.status(400).send('Tipo de filtro inválido.');
   }
 
   let zipFilename;
   try {
-    zipFilename = await generateFichas(parentId);
+    zipFilename = await generateFichas(parentId, filterType);
   } catch (err) {
     console.error('Erro ao gerar fichas:', err);
     return res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');
