@@ -17,7 +17,7 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 - Suporte para múltiplas avaliações de mérito
   - Sistema agora exibe TODAS as avaliações de uma inscrição (múltiplos avaliadores)
   - Cada avaliação mostra:
-    - Nome do avaliador
+    - ID sequencial do avaliador (#1, #2, #3, etc)
     - Pontuação por critério
     - Pontuação total
     - Parecer individual

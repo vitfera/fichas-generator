@@ -456,12 +456,9 @@ async function getEvaluationsForRegistrations(regIds, phaseIds) {
         r.opportunity_id AS phase_id,
         re.evaluation_data,
         re.result AS total_score,
-        re.user_id,
-        COALESCE(a.name, u.email) AS evaluator_name
+        re.user_id
       FROM registration_evaluation re
       JOIN registration r ON r.id = re.registration_id
-      JOIN usr u ON u.id = re.user_id
-      LEFT JOIN agent a ON a.user_id = u.id
       WHERE re.registration_id = ANY($1::int[])
         AND r.opportunity_id = ANY($2::int[])
       ORDER BY re.registration_id, re.id;
@@ -477,8 +474,7 @@ async function getEvaluationsForRegistrations(regIds, phaseIds) {
       evaluations[key].push({
         evaluation_data: row.evaluation_data,
         total_score: row.total_score || 0,
-        user_id: row.user_id,
-        evaluator_name: row.evaluator_name
+        user_id: row.user_id
       });
     }
     return evaluations;
@@ -543,10 +539,11 @@ async function processEvaluation(regId, phaseId, evaluationDataArray) {
   const processedEvaluations = [];
   let technicalSections = null;
   
-  for (const evaluationData of evaluationDataArray) {
+  for (let i = 0; i < evaluationDataArray.length; i++) {
+    const evaluationData = evaluationDataArray[i];
     let rawEval = evaluationData.evaluation_data;
     const totalScore = evaluationData.total_score || 0;
-    const evaluatorName = evaluationData.evaluator_name || 'Avaliador não identificado';
+    const evaluatorId = `#${i + 1}`;
   
     if (typeof rawEval === 'string') {
       try {
@@ -558,7 +555,7 @@ async function processEvaluation(regId, phaseId, evaluationDataArray) {
 
     if (!rawEval || typeof rawEval !== 'object') {
       processedEvaluations.push({
-        evaluator: evaluatorName,
+        evaluator: evaluatorId,
         sections: [],
         status: rawEval.status ? String(rawEval.status) : '',
         parecer: rawEval.obs ? String(rawEval.obs) : '',
@@ -597,7 +594,7 @@ async function processEvaluation(regId, phaseId, evaluationDataArray) {
     const hasSimplified = !hasTechnical && totalScore > 0;
 
     processedEvaluations.push({
-      evaluator: evaluatorName,
+      evaluator: evaluatorId,
       sections,
       status: statusText,
       parecer: parecerText,
