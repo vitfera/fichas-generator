@@ -2,7 +2,7 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
-## [1.5.0] – 2025-12-15
+## [1.5.0] – 2025-12-16
 
 ### Adicionado
 - Nova funcionalidade: filtro de status de inscrições
