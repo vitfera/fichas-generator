@@ -146,48 +146,61 @@
         </table>
       {{/if}}
 
-      {{!-- 2) Bloco de Avaliação Técnica --}}
+      {{!-- 2) Bloco de Avaliação Técnica - Múltiplas avaliações --}}
       {{#if this.evaluation.hasTechnical}}
         <div class="section-title">Análise de Mérito</div>
 
-        {{!-- Para cada seção técnica --}}
-        {{#each this.evaluation.sections}}
-          <div class="fw-bold mb-1">{{sectionTitle}}</div>
-          <table class="table table-bordered table-sm mb-2">
-            <thead class="table-light">
-              <tr>
-                <th>Critério</th>
-                <th>Nota</th>
-              </tr>
-            </thead>
-            <tbody>
-              {{#each this.criteria}}
+        {{!-- Para cada avaliação individual --}}
+        {{#each this.evaluation.evaluations}}
+          <div class="fw-bold mb-2" style="background-color: #f0f0f0; padding: 8px; margin-top: 12px;">
+            Avaliador: {{this.evaluator}}
+          </div>
+
+          {{!-- Para cada seção técnica --}}
+          {{#each this.sections}}
+            <div class="fw-bold mb-1">{{sectionTitle}}</div>
+            <table class="table table-bordered table-sm mb-2">
+              <thead class="table-light">
                 <tr>
-                  <td><strong>{{this.label}}</strong></td>
-                  <td>{{this.score}}</td>
+                  <th>Critério</th>
+                  <th>Nota</th>
                 </tr>
-              {{/each}}
+              </thead>
+              <tbody>
+                {{#each this.criteria}}
+                  <tr>
+                    <td><strong>{{this.label}}</strong></td>
+                    <td>{{this.score}}</td>
+                  </tr>
+                {{/each}}
+              </tbody>
+            </table>
+          {{/each}}
+
+          {{!-- Total de Pontuação e Parecer desta avaliação --}}
+          <table class="table table-bordered table-sm mb-3">
+            <tbody>
+              <tr>
+                <td class="label"><strong>Total da Pontuação</strong></td>
+                <td class="value"><strong>{{this.total}}</strong></td>
+              </tr>
+              {{#if this.parecer}}
+                <tr>
+                  <td class="label">Parecer</td>
+                  <td class="value">{{this.parecer}}</td>
+                </tr>
+              {{/if}}
             </tbody>
           </table>
         {{/each}}
 
-        {{!-- Total de Pontuação, Status (da inscrição) e Parecer --}}
-        <table class="table table-bordered table-sm mb-3">
+        {{!-- Status da inscrição (aparece apenas uma vez) --}}
+        <table class="table table-bordered table-sm mb-3" style="background-color: #e8f4f8;">
           <tbody>
             <tr>
-              <td class="label"><strong>Total da Pontuação</strong></td>
-              <td class="value"><strong>{{this.evaluation.total}}</strong></td>
+              <td class="label"><strong>Status da Inscrição</strong></td>
+              <td class="value"><strong>{{this.regStatusText}}</strong></td>
             </tr>
-            <tr>
-              <td class="label">Status</td>
-              <td class="value">{{this.regStatusText}}</td>
-            </tr>
-            {{#if this.evaluation.parecer}}
-              <tr>
-                <td class="label">Parecer</td>
-                <td class="value">{{this.evaluation.parecer}}</td>
-              </tr>
-            {{/if}}
           </tbody>
         </table>
       {{/if}}
@@ -195,18 +208,30 @@
       {{!-- 3) Bloco de Avaliação Simplificada (quando não houver técnica) --}}
       {{#if this.evaluation.hasSimplified}}
         <div class="section-title">Avaliação Simplificada</div>
-        <table class="table table-bordered table-sm mb-3">
+        
+        {{#each this.evaluation.evaluations}}
+          <div class="fw-bold mb-2" style="background-color: #f0f0f0; padding: 8px;">
+            Avaliador: {{this.evaluator}}
+          </div>
+          <table class="table table-bordered table-sm mb-3">
+            <tbody>
+              {{#if this.parecer}}
+                <tr>
+                  <td class="label">Parecer</td>
+                  <td class="value">{{this.parecer}}</td>
+                </tr>
+              {{/if}}
+            </tbody>
+          </table>
+        {{/each}}
+
+        {{!-- Status da inscrição --}}
+        <table class="table table-bordered table-sm mb-3" style="background-color: #e8f4f8;">
           <tbody>
             <tr>
-              <td class="label">Status</td>
-              <td class="value">{{this.regStatusText}}</td>
+              <td class="label"><strong>Status da Inscrição</strong></td>
+              <td class="value"><strong>{{this.regStatusText}}</strong></td>
             </tr>
-            {{#if this.evaluation.parecer}}
-              <tr>
-                <td class="label">Parecer</td>
-                <td class="value">{{this.evaluation.parecer}}</td>
-              </tr>
-            {{/if}}
           </tbody>
         </table>
       {{/if}}

@@ -239,9 +239,25 @@ async function fetchAllRelevantPhases(parentId) {
 }
 
 // 6.4) OTIMIZADO: Busca inscrições para múltiplas fases em uma única query
-async function fetchRegistrationsForPhases(phaseIds, parentId) {
+async function fetchRegistrationsForPhases(phaseIds, parentId, filterType = 'selected') {
   const client = await pool.connect();
   try {
+    // Define o filtro de status baseado no filterType
+    let statusFilter;
+    switch(filterType) {
+      case 'selected':
+        statusFilter = 'r.status = 10';
+        break;
+      case 'selected_and_alternate':
+        statusFilter = 'r.status IN (8, 10)';
+        break;
+      case 'all':
+        statusFilter = 'r.status != 0';
+        break;
+      default:
+        statusFilter = 'r.status = 10';
+    }
+    
     const query = `
       SELECT
         r.id     AS registration_id,
@@ -253,7 +269,7 @@ async function fetchRegistrationsForPhases(phaseIds, parentId) {
       FROM registration r
       LEFT JOIN agent a ON r.agent_id = a.id
       WHERE r.opportunity_id = ANY($1::int[])
-      AND (r.opportunity_id != $2 OR r.status = 10)
+      AND (r.opportunity_id != $2 OR ${statusFilter})
       ORDER BY r.opportunity_id, r.number;
     `;
     const res = await client.query(query, [phaseIds, parentId]);
@@ -439,21 +455,27 @@ async function getEvaluationsForRegistrations(regIds, phaseIds) {
         re.registration_id,
         r.opportunity_id AS phase_id,
         re.evaluation_data,
-        re.result AS total_score
+        re.result AS total_score,
+        re.user_id
       FROM registration_evaluation re
       JOIN registration r ON r.id = re.registration_id
       WHERE re.registration_id = ANY($1::int[])
-        AND r.opportunity_id = ANY($2::int[]);
+        AND r.opportunity_id = ANY($2::int[])
+      ORDER BY re.registration_id, re.id;
     `;
     const res = await client.query(query, [regIds, phaseIds]);
     
     const evaluations = {};
     for (const row of res.rows) {
       const key = `${row.registration_id}_${row.phase_id}`;
-      evaluations[key] = {
+      if (!evaluations[key]) {
+        evaluations[key] = [];
+      }
+      evaluations[key].push({
         evaluation_data: row.evaluation_data,
-        total_score: row.total_score || 0
-      };
+        total_score: row.total_score || 0,
+        user_id: row.user_id
+      });
     }
     return evaluations;
   } finally {
@@ -504,72 +526,88 @@ async function fetchFilesForRegistrations(regIds, phaseIds) {
   }
 }
 
-// 6.10) Função helper para processar avaliação individual
-async function processEvaluation(regId, phaseId, evaluationData) {
-  if (!evaluationData) {
+// 6.10) Função helper para processar avaliação individual (agora suporta múltiplas avaliações)
+async function processEvaluation(regId, phaseId, evaluationDataArray) {
+  if (!evaluationDataArray || !Array.isArray(evaluationDataArray) || evaluationDataArray.length === 0) {
     return {
-      sections: [],
-      status: '',
-      parecer: '',
-      total: 0,
+      evaluations: [],
       hasTechnical: false,
       hasSimplified: false
     };
   }
 
-  let rawEval = evaluationData.evaluation_data;
-  const totalScore = evaluationData.total_score || 0;
+  const processedEvaluations = [];
+  let technicalSections = null;
   
-  if (typeof rawEval === 'string') {
-    try {
-      rawEval = JSON.parse(rawEval);
-    } catch {
-      rawEval = {};
+  for (let i = 0; i < evaluationDataArray.length; i++) {
+    const evaluationData = evaluationDataArray[i];
+    let rawEval = evaluationData.evaluation_data;
+    const totalScore = evaluationData.total_score || 0;
+    const evaluatorId = `#${i + 1}`;
+  
+    if (typeof rawEval === 'string') {
+      try {
+        rawEval = JSON.parse(rawEval);
+      } catch {
+        rawEval = {};
+      }
     }
-  }
 
-  if (!rawEval || typeof rawEval !== 'object') {
-    return {
-      sections: [],
-      status: rawEval.status ? String(rawEval.status) : '',
-      parecer: rawEval.obs ? String(rawEval.obs) : '',
-      total: totalScore,
-      hasTechnical: false,
-      hasSimplified: totalScore > 0
-    };
-  }
-
-  const parecerText = rawEval.obs ? String(rawEval.obs) : '';
-  const statusText = rawEval.status ? String(rawEval.status) : '';
-
-  // Buscar seções técnicas
-  const technicalSections = await getSectionsAndCriteriaForPhase(phaseId);
-  const sections = [];
-
-  if (technicalSections.length) {
-    for (const sec of technicalSections) {
-      const critList = sec.criteria.map(c => ({
-        label: c.title || '',
-        score: rawEval[c.id] !== undefined ? (Number(rawEval[c.id]) || 0) : 0
-      }));
-
-      sections.push({
-        sectionTitle: sec.name || '',
-        criteria: critList
+    if (!rawEval || typeof rawEval !== 'object') {
+      processedEvaluations.push({
+        evaluator: evaluatorId,
+        sections: [],
+        status: rawEval.status ? String(rawEval.status) : '',
+        parecer: rawEval.obs ? String(rawEval.obs) : '',
+        total: totalScore,
+        hasTechnical: false,
+        hasSimplified: totalScore > 0
       });
+      continue;
     }
-  }
 
-  const hasTechnical = sections.length > 0;
-  const hasSimplified = !hasTechnical && totalScore > 0;
+    const parecerText = rawEval.obs ? String(rawEval.obs) : '';
+    const statusText = rawEval.status ? String(rawEval.status) : '';
+
+    // Buscar seções técnicas apenas uma vez
+    if (!technicalSections) {
+      technicalSections = await getSectionsAndCriteriaForPhase(phaseId);
+    }
+    
+    const sections = [];
+
+    if (technicalSections.length) {
+      for (const sec of technicalSections) {
+        const critList = sec.criteria.map(c => ({
+          label: c.title || '',
+          score: rawEval[c.id] !== undefined ? (Number(rawEval[c.id]) || 0) : 0
+        }));
+
+        sections.push({
+          sectionTitle: sec.name || '',
+          criteria: critList
+        });
+      }
+    }
+
+    const hasTechnical = sections.length > 0;
+    const hasSimplified = !hasTechnical && totalScore > 0;
+
+    processedEvaluations.push({
+      evaluator: evaluatorId,
+      sections,
+      status: statusText,
+      parecer: parecerText,
+      total: totalScore,
+      hasTechnical,
+      hasSimplified
+    });
+  }
 
   return {
-    sections,
-    status: statusText,
-    parecer: parecerText,
-    total: totalScore,
-    hasTechnical,
-    hasSimplified
+    evaluations: processedEvaluations,
+    hasTechnical: processedEvaluations.some(e => e.hasTechnical),
+    hasSimplified: processedEvaluations.some(e => e.hasSimplified)
   };
 }
 
@@ -596,8 +634,8 @@ async function htmlToPdfBuffer(html) {
 // ------------------------------------------------------------
 // 8) Geração de fichas para um parentId - COMPLETAMENTE OTIMIZADA
 // ------------------------------------------------------------
-async function generateFichas(parentId) {
-  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId}`);
+async function generateFichas(parentId, filterType = 'selected') {
+  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId} (filtro: ${filterType})`);
   const startTime = Date.now();
   
   // 8.1) Buscar todos os filhos (exceto parentId+1)
@@ -606,7 +644,7 @@ async function generateFichas(parentId) {
   
   // 8.2) Buscar inscrições para todas as fases de uma vez
   const phaseIds = [parentId, ...children.map(c => c.id)];
-  const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId);
+  const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId, filterType);
   console.log(`→ Inscrições por fase carregadas em lote`);
   
   // 8.3) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
@@ -952,6 +990,15 @@ app.get('/', async (req, res) => {
                     ${optionsHtml}
                   </select>
                 </div>
+                <div class="mb-3">
+                  <label for="filterType" class="form-label">Filtrar inscrições:</label>
+                  <select name="filterType" id="filterType" class="form-select" required>
+                    <option value="selected">Apenas selecionadas (status 10)</option>
+                    <option value="selected_and_alternate">Selecionadas e suplentes (status 8 e 10)</option>
+                    <option value="all">Todas inscritas (exceto não avaliadas)</option>
+                  </select>
+                  <div class="form-text">Escolha quais inscrições devem ser incluídas nas fichas</div>
+                </div>
                 <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
                   <span id="btnText">Gerar Fichas</span>
                   <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
@@ -988,13 +1035,21 @@ app.get('/', async (req, res) => {
 ////////////////////////////////////////////////////////////////////////////////
 app.post('/generate', async (req, res) => {
   const parentId = parseInt(req.body.parent, 10);
+  const filterType = req.body.filterType || 'selected';
+  
   if (isNaN(parentId)) {
     return res.status(400).send('Oportunidade inválida.');
+  }
+  
+  // Validar filterType
+  const validFilters = ['selected', 'selected_and_alternate', 'all'];
+  if (!validFilters.includes(filterType)) {
+    return res.status(400).send('Tipo de filtro inválido.');
   }
 
   let zipFilename;
   try {
-    zipFilename = await generateFichas(parentId);
+    zipFilename = await generateFichas(parentId, filterType);
   } catch (err) {
     console.error('Erro ao gerar fichas:', err);
     return res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');

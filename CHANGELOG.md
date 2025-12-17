@@ -2,6 +2,34 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.0] – 2025-12-16
+
+### Adicionado
+- Nova funcionalidade: filtro de status de inscrições
+  - Gestor pode escolher entre três opções de filtro ao gerar fichas:
+    - "Apenas selecionadas (status 10)" - padrão
+    - "Selecionadas e suplentes (status 8 e 10)"
+    - "Todas inscritas (exceto não avaliadas)" - status diferente de 0
+  - Implementado campo select no formulário de seleção de oportunidade
+  - Parâmetro `filterType` adicionado às funções `generateFichas()` e `fetchRegistrationsForPhases()`
+  - Validação de valores aceitos para filterType na rota POST /generate
+
+- Suporte para múltiplas avaliações de mérito
+  - Sistema agora exibe TODAS as avaliações de uma inscrição (múltiplos avaliadores)
+  - Cada avaliação mostra:
+    - ID sequencial do avaliador (#1, #2, #3, etc)
+    - Pontuação por critério
+    - Pontuação total
+    - Parecer individual
+  - Status da inscrição exibido uma única vez após todas as avaliações
+
+### Técnico
+- Função `fetchRegistrationsForPhases()` agora aceita parâmetro `filterType` com switch case para aplicar filtro dinâmico
+- Filtro aplicado apenas na fase pai, mantendo lógica de aceitar todos os status nas fases filhas
+- Função `getEvaluationsForRegistrations()` modificada para retornar array de avaliações com informações do avaliador
+- Função `processEvaluation()` modificada para processar array de avaliações
+- Template HTML atualizado para exibir múltiplas avaliações em blocos separados
+
 ## [1.4.1] – 2025-12-11
 
 ### Corrigido
