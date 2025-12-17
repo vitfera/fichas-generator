@@ -455,21 +455,31 @@ async function getEvaluationsForRegistrations(regIds, phaseIds) {
         re.registration_id,
         r.opportunity_id AS phase_id,
         re.evaluation_data,
-        re.result AS total_score
+        re.result AS total_score,
+        re.user_id,
+        COALESCE(a.name, u.email) AS evaluator_name
       FROM registration_evaluation re
       JOIN registration r ON r.id = re.registration_id
+      JOIN usr u ON u.id = re.user_id
+      LEFT JOIN agent a ON a.user_id = u.id
       WHERE re.registration_id = ANY($1::int[])
-        AND r.opportunity_id = ANY($2::int[]);
+        AND r.opportunity_id = ANY($2::int[])
+      ORDER BY re.registration_id, re.id;
     `;
     const res = await client.query(query, [regIds, phaseIds]);
     
     const evaluations = {};
     for (const row of res.rows) {
       const key = `${row.registration_id}_${row.phase_id}`;
-      evaluations[key] = {
+      if (!evaluations[key]) {
+        evaluations[key] = [];
+      }
+      evaluations[key].push({
         evaluation_data: row.evaluation_data,
-        total_score: row.total_score || 0
-      };
+        total_score: row.total_score || 0,
+        user_id: row.user_id,
+        evaluator_name: row.evaluator_name
+      });
     }
     return evaluations;
   } finally {
@@ -520,72 +530,87 @@ async function fetchFilesForRegistrations(regIds, phaseIds) {
   }
 }
 
-// 6.10) Função helper para processar avaliação individual
-async function processEvaluation(regId, phaseId, evaluationData) {
-  if (!evaluationData) {
+// 6.10) Função helper para processar avaliação individual (agora suporta múltiplas avaliações)
+async function processEvaluation(regId, phaseId, evaluationDataArray) {
+  if (!evaluationDataArray || !Array.isArray(evaluationDataArray) || evaluationDataArray.length === 0) {
     return {
-      sections: [],
-      status: '',
-      parecer: '',
-      total: 0,
+      evaluations: [],
       hasTechnical: false,
       hasSimplified: false
     };
   }
 
-  let rawEval = evaluationData.evaluation_data;
-  const totalScore = evaluationData.total_score || 0;
+  const processedEvaluations = [];
+  let technicalSections = null;
   
-  if (typeof rawEval === 'string') {
-    try {
-      rawEval = JSON.parse(rawEval);
-    } catch {
-      rawEval = {};
+  for (const evaluationData of evaluationDataArray) {
+    let rawEval = evaluationData.evaluation_data;
+    const totalScore = evaluationData.total_score || 0;
+    const evaluatorName = evaluationData.evaluator_name || 'Avaliador não identificado';
+  
+    if (typeof rawEval === 'string') {
+      try {
+        rawEval = JSON.parse(rawEval);
+      } catch {
+        rawEval = {};
+      }
     }
-  }
 
-  if (!rawEval || typeof rawEval !== 'object') {
-    return {
-      sections: [],
-      status: rawEval.status ? String(rawEval.status) : '',
-      parecer: rawEval.obs ? String(rawEval.obs) : '',
-      total: totalScore,
-      hasTechnical: false,
-      hasSimplified: totalScore > 0
-    };
-  }
-
-  const parecerText = rawEval.obs ? String(rawEval.obs) : '';
-  const statusText = rawEval.status ? String(rawEval.status) : '';
-
-  // Buscar seções técnicas
-  const technicalSections = await getSectionsAndCriteriaForPhase(phaseId);
-  const sections = [];
-
-  if (technicalSections.length) {
-    for (const sec of technicalSections) {
-      const critList = sec.criteria.map(c => ({
-        label: c.title || '',
-        score: rawEval[c.id] !== undefined ? (Number(rawEval[c.id]) || 0) : 0
-      }));
-
-      sections.push({
-        sectionTitle: sec.name || '',
-        criteria: critList
+    if (!rawEval || typeof rawEval !== 'object') {
+      processedEvaluations.push({
+        evaluator: evaluatorName,
+        sections: [],
+        status: rawEval.status ? String(rawEval.status) : '',
+        parecer: rawEval.obs ? String(rawEval.obs) : '',
+        total: totalScore,
+        hasTechnical: false,
+        hasSimplified: totalScore > 0
       });
+      continue;
     }
-  }
 
-  const hasTechnical = sections.length > 0;
-  const hasSimplified = !hasTechnical && totalScore > 0;
+    const parecerText = rawEval.obs ? String(rawEval.obs) : '';
+    const statusText = rawEval.status ? String(rawEval.status) : '';
+
+    // Buscar seções técnicas apenas uma vez
+    if (!technicalSections) {
+      technicalSections = await getSectionsAndCriteriaForPhase(phaseId);
+    }
+    
+    const sections = [];
+
+    if (technicalSections.length) {
+      for (const sec of technicalSections) {
+        const critList = sec.criteria.map(c => ({
+          label: c.title || '',
+          score: rawEval[c.id] !== undefined ? (Number(rawEval[c.id]) || 0) : 0
+        }));
+
+        sections.push({
+          sectionTitle: sec.name || '',
+          criteria: critList
+        });
+      }
+    }
+
+    const hasTechnical = sections.length > 0;
+    const hasSimplified = !hasTechnical && totalScore > 0;
+
+    processedEvaluations.push({
+      evaluator: evaluatorName,
+      sections,
+      status: statusText,
+      parecer: parecerText,
+      total: totalScore,
+      hasTechnical,
+      hasSimplified
+    });
+  }
 
   return {
-    sections,
-    status: statusText,
-    parecer: parecerText,
-    total: totalScore,
-    hasTechnical,
-    hasSimplified
+    evaluations: processedEvaluations,
+    hasTechnical: processedEvaluations.some(e => e.hasTechnical),
+    hasSimplified: processedEvaluations.some(e => e.hasSimplified)
   };
 }
 
