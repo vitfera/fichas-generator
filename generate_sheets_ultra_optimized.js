@@ -447,9 +447,16 @@ async function generateFichas(parentId) {
     }
     
     // Pré-carregar TODOS os dados
-    const allRegIds = registrations.map(r => r.registration_id);
+    // Coletar IDs de TODAS as fases, não apenas da fase escolhida
+    const allRegIdsSet = new Set();
+    for (const phase of phases) {
+      const regsInPhase = registrationsByPhase[phase.id] || [];
+      regsInPhase.forEach(r => allRegIdsSet.add(r.registration_id));
+    }
+    const allRegIds = Array.from(allRegIdsSet);
     const allPhaseIds = phases.map(p => p.id);
     
+    console.log(`→ Total de IDs únicos para pré-carregar: ${allRegIds.length}`);
     console.log(`→ Pré-carregando dados para ${allRegIds.length} registros...`);
     
     const [parentRegIdMap, allMetaData] = await Promise.all([
@@ -499,20 +506,25 @@ async function generateFichas(parentId) {
         }
         
         // Processar fases
-        const dataPhases = phases.map(phase => ({
-          id: phase.id,
-          name: phase.name,
-          rows: (phase.id === parentId)
-            ? parentMetaArray
-            : ((allMetaData[reg.registration_id] && allMetaData[reg.registration_id][phase.id]) || []).map(item => ({
-                label: item.label,
-                value: formatValue(item.value)
-              })),
-          evaluation: { sections: [], status: '', parecer: '', total: 0, hasTechnical: false, hasSimplified: false },
-          regStatusText: STATUS_LABELS[reg.registration_status] || '',
-          files: [],
-          evalRegId: regIdsByPhase[phase.id] || reg.registration_id
-        }));
+        const dataPhases = phases.map(phase => {
+          // Usar o ID de registro correto para cada fase
+          const phaseRegId = regIdsByPhase[phase.id] || reg.registration_id;
+          
+          return {
+            id: phase.id,
+            name: phase.name,
+            rows: (phase.id === parentId)
+              ? parentMetaArray
+              : ((allMetaData[phaseRegId] && allMetaData[phaseRegId][phase.id]) || []).map(item => ({
+                  label: item.label,
+                  value: formatValue(item.value)
+                })),
+            evaluation: { sections: [], status: '', parecer: '', total: 0, hasTechnical: false, hasSimplified: false },
+            regStatusText: STATUS_LABELS[reg.registration_status] || '',
+            files: [],
+            evalRegId: phaseRegId
+          };
+        });
         
         // Gerar PDF
         const data = {
