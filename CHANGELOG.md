@@ -2,6 +2,26 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.1] – 2026-02-25
+
+### Corrigido
+- **Bug crítico nas versões otimizada e ultra otimizada:** Fases adicionais (como "Prestação de Contas") não apareciam nos PDFs
+  - Problema: O sistema só coletava IDs de registro da fase escolhida para pré-carregamento
+  - Solução: Agora coleta IDs de registro de TODAS as fases antes do pré-carregamento
+  - Ao processar cada fase, agora usa o ID de registro correto (`phaseRegId`) ao invés do ID da inscrição principal
+  - Garante que dados de todas as fases configuradas apareçam no PDF, mesmo que não sejam da fase de inscrição inicial
+
+### Técnico
+- Modificado `generate_sheets_optimized.js` e `generate_sheets_ultra_optimized.js`:
+  - Alterada coleta de `allRegIds` para iterar por todas as fases e coletar IDs únicos via Set
+  - Variável `phaseRegId` agora é utilizada consistentemente ao buscar metadados em `allMetaData`
+  - Correção já existia em `generate_sheets.js` desde v1.4.1, mas não havia sido aplicada nas versões otimizadas
+  
+### Contexto
+- Fase "Prestação de Contas" da inscrição AC1289227210 estava selecionada (status 10) com 27 campos preenchidos, mas não aparecia no PDF
+- Debug revelou que a fase estava sendo retornada pela query SQL mas os metadados não eram carregados
+- Root cause: pré-carregamento buscava apenas metadados dos IDs da fase escolhida, ignorando IDs de outras fases
+
 ## [1.5.0] – 2025-12-16
 
 ### Adicionado
