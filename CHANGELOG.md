@@ -2,6 +2,21 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.2] – 2026-07-06
+
+### Corrigido
+- **Layout mobile do formulário de geração de fichas:** Página não se ajustava corretamente em telas de celular
+  - Problema: faltava a meta tag `viewport`, então navegadores mobile renderizavam a página em largura desktop e apenas aplicavam zoom, sem reflow real do grid Bootstrap
+  - Solução: adicionada `<meta name="viewport" content="width=device-width, initial-scale=1">` em ambas as páginas (formulário e resultado)
+  - Badge "OTIMIZADO" agora quebra para a linha seguinte em telas pequenas, evitando sobreposição com o título
+  - Botões "Baixar todas as fichas (ZIP)" e "Voltar" na página de resultado agora empilham em largura total no mobile, em vez de ficarem espremidos lado a lado
+
+### Técnico
+- Modificado `generate_sheets.js` e `generate_sheets_optimized.js`:
+  - Meta viewport adicionada nas duas páginas (`/` e `/generate`)
+  - Media query `max-width: 576px` para reduzir `padding-top` e ajustar o `.performance-badge`
+  - Botões de ação da página de resultado envolvidos em `d-grid gap-2 d-sm-flex`
+
 ## [1.5.1] – 2026-02-25
 
 ### Corrigido
