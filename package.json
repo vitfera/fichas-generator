@@ -4,7 +4,8 @@
   "description": "Serviço para gerar fichas de inscrição em PDF a partir do banco Mapas - VERSÃO OTIMIZADA",
   "main": "generate_sheets.js",
   "scripts": {
-    "generate": "node generate_sheets.js"
+    "generate": "node generate_sheets.js",
+    "test": "node --test"
   },
   "dependencies": {
     "dotenv": "^16.0.3",

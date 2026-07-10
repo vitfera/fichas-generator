@@ -2,6 +2,13 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.3] – 2026-07-10
+
+### Adicionado
+- Configuração `LOGO_PATH` no `.env` para permitir trocar a logo usada nas fichas e nas telas da aplicação sem alterar o código.
+- Helper centralizado `logo_loader.js` com fallback automático para `assets/logo.png`.
+- Testes automatizados para validar `LOGO_PATH` absoluto, relativo e fallback padrão.
+
 ## [1.5.2] – 2026-07-06
 
 ### Corrigido
