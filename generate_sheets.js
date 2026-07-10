@@ -929,6 +929,7 @@ app.get('/', async (req, res) => {
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Gerar Fichas de Inscrição - OTIMIZADO</title>
     <!-- Bootstrap CSS local -->
     <link href="/assets/css/bootstrap.min.css" rel="stylesheet" />
@@ -947,12 +948,22 @@ app.get('/', async (req, res) => {
         display: none;
       }
       .performance-badge {
+        display: inline-block;
         background: linear-gradient(45deg, #28a745, #20c997);
         color: white;
         padding: 4px 8px;
         border-radius: 4px;
         font-size: 0.8em;
         margin-left: 10px;
+      }
+      @media (max-width: 576px) {
+        body {
+          padding-top: 20px;
+        }
+        .performance-badge {
+          margin-left: 0;
+          margin-top: 6px;
+        }
       }
     </style>
   </head>
@@ -1083,6 +1094,7 @@ app.post('/generate', async (req, res) => {
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fichas Geradas - OTIMIZADO</title>
     <!-- Bootstrap CSS local -->
     <link href="/assets/css/bootstrap.min.css" rel="stylesheet" />
@@ -1098,12 +1110,22 @@ app.post('/generate', async (req, res) => {
         max-height: 80px;
       }
       .performance-badge {
+        display: inline-block;
         background: linear-gradient(45deg, #28a745, #20c997);
         color: white;
         padding: 4px 8px;
         border-radius: 4px;
         font-size: 0.8em;
         margin-left: 10px;
+      }
+      @media (max-width: 576px) {
+        body {
+          padding-top: 20px;
+        }
+        .performance-badge {
+          margin-left: 0;
+          margin-top: 6px;
+        }
       }
     </style>
   </head>
@@ -1128,12 +1150,14 @@ app.post('/generate', async (req, res) => {
                 Fichas geradas para oportunidade ${parentId}
                 <span class="performance-badge">OTIMIZADO</span>
               </h5>
-              <a href="/downloads/${zipFilename}" class="btn btn-success me-2">
-                Baixar todas as fichas (ZIP)
-              </a>
-              <a href="/" class="btn btn-secondary">
-                Voltar
-              </a>
+              <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
+                <a href="/downloads/${zipFilename}" class="btn btn-success">
+                  Baixar todas as fichas (ZIP)
+                </a>
+                <a href="/" class="btn btn-secondary">
+                  Voltar
+                </a>
+              </div>
             </div>
           </div>
 
