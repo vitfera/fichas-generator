@@ -19,6 +19,7 @@ const puppeteer = require('puppeteer-core');
 const archiver = require('archiver');
 const { PDFDocument } = require('pdf-lib');
 const CacheManager = require('./cache_manager');
+const { loadLogoBase64 } = require('./logo_loader');
 
 // Inicializar cache
 const cache = new CacheManager(process.env.USE_REDIS === 'true');
@@ -98,19 +99,12 @@ const template = Handlebars.compile(templateSource);
 // Assets
 const assetPath = path.join(__dirname, 'assets');
 let bootstrapCSS = '';
-let logoBase64 = '';
+const logoBase64 = loadLogoBase64();
 
 try {
   bootstrapCSS = fs.readFileSync(path.join(assetPath, 'css', 'bootstrap.min.css'), 'utf-8');
 } catch (err) {
   console.warn('Bootstrap CSS não encontrado');
-}
-
-try {
-  const logoBuffer = fs.readFileSync(path.join(assetPath, 'logo.png'));
-  logoBase64 = logoBuffer.toString('base64');
-} catch (err) {
-  console.warn('Logo não encontrado');
 }
 
 // Formatação de valores

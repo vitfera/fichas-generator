@@ -52,6 +52,7 @@ Esta é uma solução desenvolvida para o projeto **MAPAS Culturais**, que autom
    OUTPUT_DIR=/app/output
    SERVER_PORT=4444
    FILES_DIR=/srv/mapas/docker-data/private-files/registration
+   LOGO_PATH=assets/logo.png
    USE_REDIS=false  # true para usar Redis
    ```
 
@@ -77,8 +78,11 @@ Esta é uma solução desenvolvida para o projeto **MAPAS Culturais**, que autom
    OUTPUT_DIR=./output
    SERVER_PORT=4444
    FILES_DIR=/srv/mapas/docker-data/private-files/registration
+   LOGO_PATH=assets/logo.png
    USE_REDIS=false  # true para usar Redis
    ```
+
+   `LOGO_PATH` é opcional. Quando não informado, o sistema usa `assets/logo.png`. O caminho pode ser absoluto ou relativo à raiz do projeto.
 
 3. **Execute:**
    ```bash
@@ -237,7 +241,7 @@ Este projeto mantém a mesma licença do MapasCulturais.
   Contém o template Handlebars (`ficha-inscricao.html`) utilizado para gerar os PDFs.
 
 - `assets/`  
-  Arquivos estáticos, incluindo CSS do Bootstrap e a logo em PNG.
+  Arquivos estáticos, incluindo CSS do Bootstrap e a logo padrão em PNG.
 
 - `generate_sheets.js`  
   Script principal em Node.js que implementa o fluxo de leitura do banco, compilação do template e geração dos PDFs.
@@ -246,7 +250,7 @@ Este projeto mantém a mesma licença do MapasCulturais.
   Configuração para criação dos contêineres Docker.
 
 - `.env`  
-  Arquivo de configuração de variáveis de ambiente.
+  Arquivo de configuração de variáveis de ambiente, incluindo `LOGO_PATH` para trocar a logo por sistema.
 
 - `README.md`  
   Documentação do projeto.

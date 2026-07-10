@@ -12,7 +12,7 @@
  * ao buscar registration_evaluation para avaliação técnica.
  *
  * .env deve conter:
- *   DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, OUTPUT_DIR, SERVER_PORT
+ *   DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME, OUTPUT_DIR, SERVER_PORT, LOGO_PATH
  *
  * MELHORIAS DE PERFORMANCE:
  * - Pool de conexões otimizado com timeout
@@ -32,6 +32,7 @@ const Handlebars = require('handlebars');
 const puppeteer  = require('puppeteer-core');
 const archiver   = require('archiver');
 const { PDFDocument } = require('pdf-lib');
+const { loadLogoBase64 } = require('./logo_loader');
 
 /**
  * Junta o PDF gerado (buffer mainPdf) com uma lista de buffers de anexos.
@@ -105,7 +106,7 @@ const templateSource = fs.readFileSync(templatePath, 'utf-8');
 const template       = Handlebars.compile(templateSource);
 
 // ------------------------------------------------------------
-// 4) Lê o Bootstrap CSS (para embutir) e o logo.png em Base64
+// 4) Lê o Bootstrap CSS (para embutir) e a logo em Base64
 // ------------------------------------------------------------
 const assetPath = path.join(__dirname, 'assets');
 
@@ -118,13 +119,7 @@ try {
 }
 
 // 4.2) Logo em Base64
-let logoBase64 = '';
-try {
-  const logoBuffer = fs.readFileSync(path.join(assetPath, 'logo.png'));
-  logoBase64 = logoBuffer.toString('base64');
-} catch (err) {
-  console.warn('Atenção: não foi possível ler assets/logo.png para incorporar no PDF.');
-}
+const logoBase64 = loadLogoBase64();
 
 // ------------------------------------------------------------
 // 5) Formatação de valores: datas e JSON-arrays
