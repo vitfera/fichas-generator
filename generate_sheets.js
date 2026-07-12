@@ -999,13 +999,6 @@ app.get('/', async (req, res) => {
                     ${optionsHtml}
                   </select>
                 </div>
-                <div id="generatedFilesBlock" class="generated-files-block border rounded p-3 mb-3 bg-light">
-                  <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-                    <strong>Arquivos já gerados</strong>
-                    <span id="generatedFilesCount" class="badge text-bg-secondary">0</span>
-                  </div>
-                  <div id="generatedFilesContent" class="small text-muted"></div>
-                </div>
                 <div class="mb-3">
                   <label for="filterType" class="form-label">Filtrar inscrições:</label>
                   <select name="filterType" id="filterType" class="form-select" required>
@@ -1020,6 +1013,16 @@ app.get('/', async (req, res) => {
                   <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
                 </button>
               </form>
+            </div>
+          </div>
+
+          <div id="generatedFilesBlock" class="generated-files-block card shadow-sm mt-3">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                <h6 class="card-title mb-0">Arquivos já gerados</h6>
+                <span id="generatedFilesCount" class="badge text-bg-secondary">0</span>
+              </div>
+              <div id="generatedFilesContent" class="small text-muted"></div>
             </div>
           </div>
         </div>

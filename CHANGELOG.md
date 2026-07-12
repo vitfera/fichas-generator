@@ -2,6 +2,11 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.6] – 2026-07-12
+
+### Corrigido
+- Lista de arquivos já gerados agora aparece em um card separado abaixo do formulário de geração.
+
 ## [1.5.5] – 2026-07-12
 
 ### Adicionado
