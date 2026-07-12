@@ -33,6 +33,7 @@ const puppeteer  = require('puppeteer-core');
 const archiver   = require('archiver');
 const { PDFDocument } = require('pdf-lib');
 const { loadLogoBase64 } = require('./logo_loader');
+const { listGeneratedFilesForOpportunity } = require('./generated_files');
 
 /**
  * Junta o PDF gerado (buffer mainPdf) com uma lista de buffers de anexos.
@@ -904,6 +905,20 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/downloads', express.static(OUTPUT_DIR));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
+app.get('/generated-files', (req, res) => {
+  const parentId = parseInt(req.query.parent, 10);
+  if (isNaN(parentId)) {
+    return res.status(400).json({ error: 'Oportunidade inválida.' });
+  }
+
+  try {
+    return res.json({ files: listGeneratedFilesForOpportunity(OUTPUT_DIR, parentId) });
+  } catch (err) {
+    console.error('Erro ao listar arquivos gerados:', err);
+    return res.status(500).json({ error: 'Erro ao listar arquivos gerados.' });
+  }
+});
+
 ////////////////////////////////////////////////////////////////////////////////
 // GET / → formulário com <select> de oportunidades-pai + Bootstrap + logo
 ////////////////////////////////////////////////////////////////////////////////
@@ -942,6 +957,13 @@ app.get('/', async (req, res) => {
       #loadingSpinner {
         display: none;
       }
+      .generated-files-block {
+        display: none;
+      }
+      .generated-files-list {
+        max-height: 220px;
+        overflow: auto;
+      }
       @media (max-width: 576px) {
         body {
           padding-top: 20px;
@@ -977,6 +999,13 @@ app.get('/', async (req, res) => {
                     ${optionsHtml}
                   </select>
                 </div>
+                <div id="generatedFilesBlock" class="generated-files-block border rounded p-3 mb-3 bg-light">
+                  <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                    <strong>Arquivos já gerados</strong>
+                    <span id="generatedFilesCount" class="badge text-bg-secondary">0</span>
+                  </div>
+                  <div id="generatedFilesContent" class="small text-muted"></div>
+                </div>
                 <div class="mb-3">
                   <label for="filterType" class="form-label">Filtrar inscrições:</label>
                   <select name="filterType" id="filterType" class="form-select" required>
@@ -1003,6 +1032,70 @@ app.get('/', async (req, res) => {
       const btnSubmit = document.getElementById('btnSubmit');
       const btnText = document.getElementById('btnText');
       const loadingSpinner = document.getElementById('loadingSpinner');
+      const parentSelect = document.getElementById('parent');
+      const generatedFilesBlock = document.getElementById('generatedFilesBlock');
+      const generatedFilesContent = document.getElementById('generatedFilesContent');
+      const generatedFilesCount = document.getElementById('generatedFilesCount');
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      function formatFileType(type) {
+        return type === 'zip' ? 'ZIP' : 'PDF';
+      }
+
+      function renderGeneratedFiles(files) {
+        generatedFilesBlock.style.display = 'block';
+        generatedFilesCount.textContent = files.length;
+
+        if (!files.length) {
+          generatedFilesContent.className = 'small text-muted';
+          generatedFilesContent.textContent = 'Nenhum arquivo gerado encontrado para esta oportunidade.';
+          return;
+        }
+
+        generatedFilesContent.className = 'generated-files-list list-group';
+        generatedFilesContent.innerHTML = files.map(file => {
+          const name = escapeHtml(file.name);
+          const type = escapeHtml(formatFileType(file.type));
+          return '<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2" href="' + file.url + '" target="_blank">' +
+            '<span class="text-break">' + name + '</span>' +
+            '<span class="badge text-bg-light">' + type + '</span>' +
+          '</a>';
+        }).join('');
+      }
+
+      parentSelect.addEventListener('change', async () => {
+        const parentId = parentSelect.value;
+        if (!parentId) {
+          generatedFilesBlock.style.display = 'none';
+          return;
+        }
+
+        generatedFilesBlock.style.display = 'block';
+        generatedFilesCount.textContent = '...';
+        generatedFilesContent.className = 'small text-muted';
+        generatedFilesContent.textContent = 'Buscando arquivos gerados...';
+
+        try {
+          const response = await fetch('/generated-files?parent=' + encodeURIComponent(parentId));
+          if (!response.ok) {
+            throw new Error('Erro ao buscar arquivos');
+          }
+          const data = await response.json();
+          renderGeneratedFiles(data.files || []);
+        } catch (error) {
+          generatedFilesCount.textContent = '0';
+          generatedFilesContent.className = 'small text-danger';
+          generatedFilesContent.textContent = 'Não foi possível listar os arquivos gerados.';
+        }
+      });
 
       form.addEventListener('submit', () => {
         btnSubmit.disabled = true;

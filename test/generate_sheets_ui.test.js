@@ -14,3 +14,10 @@ test('generate form does not show legacy optimization badge or alert', () => {
   assert.equal(generateSheetsSource.includes('<strong>Melhorias:</strong>'), false);
   assert.equal(generateSheetsSource.includes('Consultas em batch, cache, processamento paralelo'), false);
 });
+
+test('generate form includes generated files block for selected opportunity', () => {
+  assert.equal(generateSheetsSource.includes("app.get('/generated-files'"), true);
+  assert.equal(generateSheetsSource.includes('generatedFilesBlock'), true);
+  assert.equal(generateSheetsSource.includes('Arquivos já gerados'), true);
+  assert.equal(generateSheetsSource.includes("fetch('/generated-files?parent='"), true);
+});
