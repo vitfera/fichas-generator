@@ -925,7 +925,7 @@ app.get('/', async (req, res) => {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Gerar Fichas de Inscrição - OTIMIZADO</title>
+    <title>Gerar Fichas de Inscrição</title>
     <!-- Bootstrap CSS local -->
     <link href="/assets/css/bootstrap.min.css" rel="stylesheet" />
     <style>
@@ -942,22 +942,9 @@ app.get('/', async (req, res) => {
       #loadingSpinner {
         display: none;
       }
-      .performance-badge {
-        display: inline-block;
-        background: linear-gradient(45deg, #28a745, #20c997);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.8em;
-        margin-left: 10px;
-      }
       @media (max-width: 576px) {
         body {
           padding-top: 20px;
-        }
-        .performance-badge {
-          margin-left: 0;
-          margin-top: 6px;
         }
       }
     </style>
@@ -981,13 +968,7 @@ app.get('/', async (req, res) => {
             <div class="card-body">
               <h5 class="card-title text-center mb-4">
                 Gerar Fichas de Inscrição
-                <span class="performance-badge">OTIMIZADO</span>
               </h5>
-              <div class="alert alert-info" role="alert">
-                <small>
-                  <strong>Melhorias:</strong> Consultas em batch, cache, processamento paralelo
-                </small>
-              </div>
               <form id="formGenerate" action="/generate" method="POST">
                 <div class="mb-3">
                   <label for="parent" class="form-label">Escolha a oportunidade principal:</label>
@@ -1090,7 +1071,7 @@ app.post('/generate', async (req, res) => {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fichas Geradas - OTIMIZADO</title>
+    <title>Fichas Geradas</title>
     <!-- Bootstrap CSS local -->
     <link href="/assets/css/bootstrap.min.css" rel="stylesheet" />
     <style>
@@ -1104,22 +1085,9 @@ app.post('/generate', async (req, res) => {
       .logo-container img {
         max-height: 80px;
       }
-      .performance-badge {
-        display: inline-block;
-        background: linear-gradient(45deg, #28a745, #20c997);
-        color: white;
-        padding: 4px 8px;
-        border-radius: 4px;
-        font-size: 0.8em;
-        margin-left: 10px;
-      }
       @media (max-width: 576px) {
         body {
           padding-top: 20px;
-        }
-        .performance-badge {
-          margin-left: 0;
-          margin-top: 6px;
         }
       }
     </style>
@@ -1143,7 +1111,6 @@ app.post('/generate', async (req, res) => {
             <div class="card-body text-center">
               <h5 class="card-title mb-3">
                 Fichas geradas para oportunidade ${parentId}
-                <span class="performance-badge">OTIMIZADO</span>
               </h5>
               <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
                 <a href="/downloads/${zipFilename}" class="btn btn-success">
@@ -1181,6 +1148,6 @@ app.post('/generate', async (req, res) => {
 // 10) Inicia servidor HTTP
 // ------------------------------------------------------------
 app.listen(SERVER_PORT, () => {
-  console.log(`Servidor OTIMIZADO rodando na porta ${SERVER_PORT}`);
+  console.log(`Servidor rodando na porta ${SERVER_PORT}`);
   console.log(`Acesse http://localhost:${SERVER_PORT}/ para gerar fichas.`);
 });

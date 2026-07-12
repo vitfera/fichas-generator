@@ -8,6 +8,7 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 - Consolidado o gerador em um único ponto de entrada: `generate_sheets.js`.
 - Removidas as variantes paralelas que exigiam copiar arquivos por cima do servidor principal.
 - Documentação revisada para refletir o fluxo único de instalação, execução, teste e deploy.
+- Removidos o badge visual "OTIMIZADO" e o alerta de melhorias da interface.
 
 ### Removido
 - `generate_sheets_optimized.js`, `generate_sheets_ultra_optimized.js`, `cache_manager.js`, `test_performance.sh` e `ACTIVATION_GUIDE.md`.
