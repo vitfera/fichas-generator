@@ -2,6 +2,11 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.7] – 2026-07-12
+
+### Corrigido
+- Removida a rolagem interna da lista de arquivos já gerados, permitindo que o card cresça com o conteúdo.
+
 ## [1.5.6] – 2026-07-12
 
 ### Corrigido

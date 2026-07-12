@@ -31,3 +31,8 @@ test('generated files block is rendered outside the generation form card', () =>
   assert.equal(formEnd > formStart, true);
   assert.equal(formHtml.includes('generatedFilesBlock'), false);
 });
+
+test('generated files list does not use internal scrolling', () => {
+  assert.equal(/\.generated-files-list\s*\{[^}]*max-height/.test(generateSheetsSource), false);
+  assert.equal(/\.generated-files-list\s*\{[^}]*overflow/.test(generateSheetsSource), false);
+});

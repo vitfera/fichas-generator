@@ -960,10 +960,6 @@ app.get('/', async (req, res) => {
       .generated-files-block {
         display: none;
       }
-      .generated-files-list {
-        max-height: 220px;
-        overflow: auto;
-      }
       @media (max-width: 576px) {
         body {
           padding-top: 20px;
