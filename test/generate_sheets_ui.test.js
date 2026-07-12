@@ -21,3 +21,13 @@ test('generate form includes generated files block for selected opportunity', ()
   assert.equal(generateSheetsSource.includes('Arquivos já gerados'), true);
   assert.equal(generateSheetsSource.includes("fetch('/generated-files?parent='"), true);
 });
+
+test('generated files block is rendered outside the generation form card', () => {
+  const formStart = generateSheetsSource.indexOf('<form id="formGenerate"');
+  const formEnd = generateSheetsSource.indexOf('</form>', formStart);
+  const formHtml = generateSheetsSource.slice(formStart, formEnd);
+
+  assert.equal(formStart > -1, true);
+  assert.equal(formEnd > formStart, true);
+  assert.equal(formHtml.includes('generatedFilesBlock'), false);
+});
