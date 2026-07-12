@@ -97,6 +97,7 @@ fichas-generator/
 ## Rotas
 
 - `GET /` - formulario de geracao.
+- `GET /generated-files?parent=<id>` - lista PDFs e ZIPs ja gerados para a oportunidade.
 - `POST /generate` - gera fichas para a oportunidade selecionada.
 - `GET /downloads/<arquivo>` - baixa PDFs e ZIPs gerados.
 - `GET /assets/<arquivo>` - serve arquivos estaticos.

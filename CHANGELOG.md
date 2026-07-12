@@ -2,6 +2,12 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.5.5] – 2026-07-12
+
+### Adicionado
+- Bloco no formulário que lista PDFs e ZIPs já gerados ao selecionar uma oportunidade principal.
+- Endpoint `GET /generated-files?parent=<id>` para consultar arquivos existentes em `OUTPUT_DIR`.
+
 ## [1.5.4] – 2026-07-12
 
 ### Alterado
