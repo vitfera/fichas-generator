@@ -36,3 +36,39 @@ test('generated files list does not use internal scrolling', () => {
   assert.equal(/\.generated-files-list\s*\{[^}]*max-height/.test(generateSheetsSource), false);
   assert.equal(/\.generated-files-list\s*\{[^}]*overflow/.test(generateSheetsSource), false);
 });
+
+test('generation result page uses the generated files card layout', () => {
+  const resultPageStart = generateSheetsSource.indexOf('const generatedResultFiles =');
+  const resultPageEnd = generateSheetsSource.indexOf('res.send(html);', resultPageStart);
+  const resultPageSource = generateSheetsSource.slice(resultPageStart, resultPageEnd);
+
+  assert.equal(resultPageStart > -1, true);
+  assert.equal(resultPageEnd > resultPageStart, true);
+  assert.equal(resultPageSource.includes('<strong>Lista de PDFs gerados:</strong>'), false);
+  assert.equal(resultPageSource.includes('renderGeneratedFilesCard({'), true);
+  assert.equal(resultPageSource.includes("title: 'Arquivos gerados'"), true);
+  assert.equal(resultPageSource.includes('files: generatedResultFiles'), true);
+  assert.equal(resultPageSource.includes("type: 'zip'"), true);
+  assert.equal(resultPageSource.includes("type: 'pdf'"), true);
+});
+
+test('generated files cards reuse the same server-side renderer', () => {
+  const rendererMatches = generateSheetsSource.match(/function renderGeneratedFilesCard/g) || [];
+  const rendererCallMatches = generateSheetsSource.match(/renderGeneratedFilesCard\(/g) || [];
+
+  assert.equal(rendererMatches.length, 1);
+  assert.equal(rendererCallMatches.length, 3);
+});
+
+test('generated files endpoint reuses server-rendered list markup', () => {
+  const routeStart = generateSheetsSource.indexOf("app.get('/generated-files'");
+  const routeEnd = generateSheetsSource.indexOf('////////////////////////////////////////////////////////////////////////////////', routeStart);
+  const routeSource = generateSheetsSource.slice(routeStart, routeEnd);
+  const scriptStart = generateSheetsSource.indexOf('const form = document.getElementById');
+  const scriptEnd = generateSheetsSource.indexOf('</script>', scriptStart);
+  const scriptSource = generateSheetsSource.slice(scriptStart, scriptEnd);
+
+  assert.equal(routeSource.includes('html: renderGeneratedFilesList(files)'), true);
+  assert.equal(scriptSource.includes('generatedFilesContent.innerHTML = html;'), true);
+  assert.equal(scriptSource.includes('function escapeHtml(value)'), false);
+});
