@@ -895,6 +895,67 @@ async function generateFichas(parentId, filterType = 'selected') {
   });
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function formatGeneratedFileType(type) {
+  return type === 'zip' ? 'ZIP' : 'PDF';
+}
+
+function renderGeneratedFileItem(file) {
+  const name = escapeHtml(file.name);
+  const url = escapeHtml(file.url);
+  const type = escapeHtml(formatGeneratedFileType(file.type));
+
+  return `
+      <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2" href="${url}" target="_blank">
+        <span class="text-break">${name}</span>
+        <span class="badge text-bg-light">${type}</span>
+      </a>`;
+}
+
+function renderGeneratedFilesList(files) {
+  return files.map(renderGeneratedFileItem).join('\n');
+}
+
+function renderGeneratedFilesCard({
+  title,
+  files = [],
+  className = 'card shadow-sm',
+  blockId = '',
+  contentId = '',
+  countId = '',
+  hidden = false,
+  emptyMessage = '',
+}) {
+  const idAttribute = blockId ? ` id="${escapeHtml(blockId)}"` : '';
+  const countIdAttribute = countId ? ` id="${escapeHtml(countId)}"` : '';
+  const contentIdAttribute = contentId ? ` id="${escapeHtml(contentId)}"` : '';
+  const hiddenClass = hidden ? ' generated-files-block' : '';
+  const contentHtml = files.length
+    ? `<div${contentIdAttribute} class="generated-files-list list-group">
+${renderGeneratedFilesList(files)}
+              </div>`
+    : `<div${contentIdAttribute} class="small text-muted">${escapeHtml(emptyMessage)}</div>`;
+
+  return `
+          <div${idAttribute} class="${escapeHtml(className)}${hiddenClass}">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+                <h6 class="card-title mb-0">${escapeHtml(title)}</h6>
+                <span${countIdAttribute} class="badge text-bg-secondary">${files.length}</span>
+              </div>
+              ${contentHtml}
+            </div>
+          </div>`;
+}
+
 // ------------------------------------------------------------
 // 9) Configuração do Express (rotas / e /generate)
 // ------------------------------------------------------------
@@ -912,7 +973,11 @@ app.get('/generated-files', (req, res) => {
   }
 
   try {
-    return res.json({ files: listGeneratedFilesForOpportunity(OUTPUT_DIR, parentId) });
+    const files = listGeneratedFilesForOpportunity(OUTPUT_DIR, parentId);
+    return res.json({
+      files,
+      html: renderGeneratedFilesList(files),
+    });
   } catch (err) {
     console.error('Erro ao listar arquivos gerados:', err);
     return res.status(500).json({ error: 'Erro ao listar arquivos gerados.' });
@@ -959,10 +1024,6 @@ app.get('/', async (req, res) => {
       }
       .generated-files-block {
         display: none;
-      }
-      .generated-files-list {
-        max-height: 220px;
-        overflow: auto;
       }
       @media (max-width: 576px) {
         body {
@@ -1016,15 +1077,14 @@ app.get('/', async (req, res) => {
             </div>
           </div>
 
-          <div id="generatedFilesBlock" class="generated-files-block card shadow-sm mt-3">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
-                <h6 class="card-title mb-0">Arquivos já gerados</h6>
-                <span id="generatedFilesCount" class="badge text-bg-secondary">0</span>
-              </div>
-              <div id="generatedFilesContent" class="small text-muted"></div>
-            </div>
-          </div>
+          ${renderGeneratedFilesCard({
+            title: 'Arquivos já gerados',
+            className: 'card shadow-sm mt-3',
+            blockId: 'generatedFilesBlock',
+            contentId: 'generatedFilesContent',
+            countId: 'generatedFilesCount',
+            hidden: true,
+          })}
         </div>
       </div>
     </div>
@@ -1040,20 +1100,7 @@ app.get('/', async (req, res) => {
       const generatedFilesContent = document.getElementById('generatedFilesContent');
       const generatedFilesCount = document.getElementById('generatedFilesCount');
 
-      function escapeHtml(value) {
-        return String(value)
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
-      }
-
-      function formatFileType(type) {
-        return type === 'zip' ? 'ZIP' : 'PDF';
-      }
-
-      function renderGeneratedFiles(files) {
+      function renderGeneratedFiles(files, html) {
         generatedFilesBlock.style.display = 'block';
         generatedFilesCount.textContent = files.length;
 
@@ -1064,14 +1111,7 @@ app.get('/', async (req, res) => {
         }
 
         generatedFilesContent.className = 'generated-files-list list-group';
-        generatedFilesContent.innerHTML = files.map(file => {
-          const name = escapeHtml(file.name);
-          const type = escapeHtml(formatFileType(file.type));
-          return '<a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2" href="' + file.url + '" target="_blank">' +
-            '<span class="text-break">' + name + '</span>' +
-            '<span class="badge text-bg-light">' + type + '</span>' +
-          '</a>';
-        }).join('');
+        generatedFilesContent.innerHTML = html;
       }
 
       parentSelect.addEventListener('change', async () => {
@@ -1092,7 +1132,7 @@ app.get('/', async (req, res) => {
             throw new Error('Erro ao buscar arquivos');
           }
           const data = await response.json();
-          renderGeneratedFiles(data.files || []);
+          renderGeneratedFiles(data.files || [], data.html || '');
         } catch (error) {
           generatedFilesCount.textContent = '0';
           generatedFilesContent.className = 'small text-danger';
@@ -1152,14 +1192,18 @@ app.post('/generate', async (req, res) => {
     console.error('Erro ao listar PDFs gerados:', err);
   }
 
-  const listPdfHtml = pdfFiles
-    .map(fname => {
-      return `
-      <li class="list-group-item">
-        <a href="/downloads/${fname}" target="_blank">${fname}</a>
-      </li>`;
-    })
-    .join('\n');
+  const generatedResultFiles = [
+    {
+      name: zipFilename,
+      url: `/downloads/${zipFilename}`,
+      type: 'zip',
+    },
+    ...pdfFiles.map(fname => ({
+      name: fname,
+      url: `/downloads/${fname}`,
+      type: 'pdf',
+    })),
+  ];
 
   const html = `
 <!DOCTYPE html>
@@ -1219,14 +1263,10 @@ app.post('/generate', async (req, res) => {
             </div>
           </div>
 
-          <div class="card shadow-sm">
-            <div class="card-header">
-              <strong>Lista de PDFs gerados:</strong>
-            </div>
-            <ul class="list-group list-group-flush">
-              ${listPdfHtml || `<li class="list-group-item"><em>Nenhum PDF encontrado.</em></li>`}
-            </ul>
-          </div>
+          ${renderGeneratedFilesCard({
+            title: 'Arquivos gerados',
+            files: generatedResultFiles,
+          })}
         </div>
       </div>
 
