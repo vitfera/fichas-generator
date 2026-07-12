@@ -1,81 +1,52 @@
-# Comparação de Performance: Versão Original vs Otimizada
+# Performance Do Gerador Consolidado
 
-## Principais Melhorias Implementadas
+O projeto foi consolidado para manter um unico gerador: `generate_sheets.js`.
 
-### 1. **Pool de Conexões Otimizado**
-- Configurado com timeout e controle de conexões
-- Máximo de 20 conexões simultâneas
-- Timeout de 30s para conexões inativas
+As antigas variantes foram removidas para evitar divergencia de comportamento. O arquivo principal concentra as otimizacoes e correcoes funcionais mais recentes.
 
-### 2. **Consultas em Batch**
-- `fetchRegistrationsForPhases()`: Busca inscrições de múltiplas fases em uma única query
-- `fetchParentRegistrationIds()`: Busca IDs de inscrições pai em lote
-- `fetchOrderedMetaForRegistrations()`: Busca metadados para múltiplas inscrições
-- `getEvaluationsForRegistrations()`: Busca avaliações em lote
+## Otimizacoes Atuais
 
-### 3. **Cache Inteligente**
-- Cache de seções e critérios técnicos para evitar consultas repetidas
-- Mapas para armazenar dados pré-carregados
+### Consultas Em Lote
 
-### 4. **Pré-carregamento de Dados**
-- Todos os dados são carregados uma vez no início
-- Eliminação de consultas individuais dentro do loop
-- Processamento paralelo com `Promise.all()`
+- `fetchRegistrationsForPhases()` busca inscricoes de multiplas fases em uma chamada.
+- `fetchParentRegistrationIds()` resolve inscricoes pai em lote.
+- `fetchOrderedMetaForRegistrations()` carrega metadados para varias inscricoes/fases.
+- `getEvaluationsForRegistrations()` busca avaliacoes em lote.
+- `fetchFilesForRegistrations()` busca anexos em lote.
 
-### 5. **Processamento Paralelo**
-- Avaliações e arquivos buscados em paralelo
-- Processamento de fases em paralelo por inscrição
-- Múltiplas consultas executadas simultaneamente
+### Pre-Carregamento
 
-## Estimativa de Melhoria de Performance
+Os dados necessarios sao carregados antes do loop principal de geracao, reduzindo consultas repetidas ao banco.
 
-### Cenário Exemplo: 100 inscrições com 3 fases cada
+### Processamento Paralelo
 
-#### Versão Original:
-- ~300 consultas individuais para inscrições
-- ~100 consultas para inscrições pai
-- ~300 consultas para metadados
-- ~300 consultas para avaliações
-- ~300 consultas para arquivos
-- **Total: ~1,300 consultas sequenciais**
+Metadados, avaliacoes, anexos e fases sao processados com `Promise.all()` onde isso reduz espera sem mudar o resultado final.
 
-#### Versão Otimizada:
-- 1 consulta para todas as inscrições
-- 1 consulta para todas as inscrições pai
-- 1 consulta para todos os metadados
-- 1 consulta para todas as avaliações
-- 1 consulta para todos os arquivos
-- **Total: ~5 consultas em lote**
+### Cache Local De Secoes
 
-### Resultado Esperado:
-- **Redução de 95%+ no número de consultas**
-- **Melhoria de 5-10x na velocidade**
-- **Menor uso de recursos do banco**
-- **Melhor experiência do usuário**
+Secoes e criterios tecnicos sao mantidos em memoria durante o processo para evitar consultas repetidas por fase.
 
-## Para Testar:
+## Funcionalidades Mantidas
 
-1. **Backup do arquivo original:**
-   ```bash
-   cp generate_sheets.js generate_sheets_original.js
-   ```
+- Filtro de inscricoes por status.
+- Multiplas avaliacoes por inscricao/fase.
+- Anexos PDF mesclados ao arquivo final.
+- Logo configuravel por `LOGO_PATH`.
+- ZIP final com todas as fichas geradas.
 
-2. **Usar a versão otimizada:**
-   ```bash
-   cp generate_sheets_optimized.js generate_sheets.js
-   ```
+## Como Medir
 
-3. **Executar e comparar os tempos:**
-   - A versão otimizada inclui logs de tempo detalhados
-   - Monitore o console para ver as melhorias
+Rode a aplicacao dentro do container e acompanhe os logs:
 
-## Recursos Adicionais:
+```bash
+docker compose up --build
+```
 
-- **Logs detalhados**: Cada etapa mostra o tempo gasto
-- **Indicadores visuais**: Interface mostra que é versão otimizada
-- **Tratamento de erros**: Melhor handling de falhas
-- **Compatibilidade**: Mantém a mesma funcionalidade
+Durante a geracao, o servidor registra etapas como carregamento em lote, processamento por inscricao e geracao do ZIP.
 
----
+Para validar integridade basica:
 
-**Nota:** Se encontrar problemas com a versão otimizada, você pode voltar para a original renomeando os arquivos.
+```bash
+docker compose run --rm fichas-generator npm test
+docker compose run --rm fichas-generator node --check generate_sheets.js
+```

@@ -1,162 +1,102 @@
-# Instruções para Teste em Produção
+# Guia De Teste Em Producao
 
-## Branch de Teste: `performance-optimization-test`
+Este guia valida a aplicacao consolidada `generate_sheets.js`.
 
-Esta branch contém todas as otimizações de performance implementadas para o sistema de geração de fichas.
+## Pre-Requisitos
 
-### 🚀 Deploy Rápido
+- Docker e Docker Compose instalados.
+- Porta `4444` disponivel.
+- `.env` configurado com acesso ao PostgreSQL.
+- Volume de `OUTPUT_DIR` persistente.
+- `FILES_DIR` montado se a geracao precisar anexar arquivos.
+
+## Deploy Manual
 
 ```bash
-# 1. Clonar o repositório (se necessário)
-git clone https://github.com/vitfera/fichas-generator.git
-cd fichas-generator
-
-# 2. Fazer checkout da branch de teste
-git checkout performance-optimization-test
-
-# 3. Executar o script de deploy
-./deploy-test.sh
+docker compose up --build -d
+docker compose logs -f
 ```
 
-### 📋 Pré-requisitos
-
-- Docker e Docker Compose instalados
-- Porta 4444 disponível
-- Acesso ao banco de dados PostgreSQL (configurado no .env)
-- Pasta `/srv/mapas/docker-data/private-files/registration` com arquivos de inscrição
-
-### 🔧 Configuração Manual
-
-Se preferir fazer o deploy manualmente:
+Verifique a pagina inicial:
 
 ```bash
-# 1. Verificar configuração do .env
-cat .env
-
-# 2. Construir e iniciar os containers
-docker-compose up --build -d
-
-# 3. Verificar logs
-docker-compose logs -f
-
-# 4. Testar a aplicação
 curl http://localhost:4444
 ```
 
-### 🧪 Testes de Performance
+## Testes Automatizados
+
+Todos os comandos de verificacao devem rodar dentro do container:
 
 ```bash
-# Executar teste de performance automático
-./test_performance.sh
-
-# Ou testar manualmente:
-# 1. Acessar http://localhost:4444
-# 2. Selecionar uma oportunidade
-# 3. Clicar em "Gerar Fichas"
-# 4. Observar o tempo de processamento nos logs
+docker compose run --rm fichas-generator npm test
+docker compose run --rm fichas-generator node --check generate_sheets.js
 ```
 
-### 📊 Principais Melhorias
+## Teste Funcional
 
-1. **Consultas em Batch**: Redução de ~95% no número de queries
-2. **Cache Inteligente**: Cache de seções e critérios para avaliações técnicas
-3. **Processamento Paralelo**: Processamento simultâneo de avaliações e arquivos
-4. **Pool de Conexões Otimizado**: Configuração aprimorada do pool PostgreSQL
-5. **Pré-carregamento de Dados**: Carregamento em lote no início do processo
+1. Acesse `http://localhost:4444`.
+2. Selecione uma oportunidade principal.
+3. Escolha o filtro de inscricoes.
+4. Gere as fichas.
+5. Baixe o ZIP.
+6. Abra alguns PDFs e confirme dados, avaliacoes, anexos e logo.
 
-### 🔍 Monitoramento
+## Monitoramento
 
 ```bash
-# Ver logs em tempo real
-docker-compose logs -f
-
-# Verificar status dos containers
-docker-compose ps
-
-# Verificar uso de recursos
+docker compose logs -f fichas-generator
+docker compose ps
 docker stats fichas-generator
 ```
 
-### 🛠️ Troubleshooting
+Observe:
 
-#### Container não inicia
-```bash
-# Verificar logs de erro
-docker-compose logs
+- tempo de carregamento em lote;
+- quantidade de inscricoes processadas;
+- erros de leitura de anexos;
+- erros do Puppeteer ou Chromium;
+- tamanho final do ZIP.
 
-# Recriar containers
-docker-compose down
-docker-compose up --build
-```
+## Troubleshooting
 
-#### Erro de conexão com banco
-```bash
-# Verificar configuração do .env
-cat .env
-
-# Testar conexão com banco
-docker-compose exec fichas-generator node -e "
-const { Pool } = require('pg');
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME
-});
-pool.connect().then(() => console.log('Conectado!')).catch(console.error);
-"
-```
-
-#### Arquivos não encontrados
-```bash
-# Verificar se a pasta de arquivos existe
-ls -la /srv/mapas/docker-data/private-files/registration/
-
-# Verificar volume no container
-docker-compose exec fichas-generator ls -la /srv/mapas/docker-data/private-files/registration/
-```
-
-### 📈 Comparação de Performance
-
-| Métrica | Versão Original | Versão Otimizada | Melhoria |
-|---------|----------------|------------------|----------|
-| Queries por ficha | ~50-100 | ~2-5 | 95% redução |
-| Tempo de processamento | 30-60s | 5-15s | 75% redução |
-| Conexões simultâneas | 1 | 20 | 2000% aumento |
-| Cache hits | 0% | 80-90% | - |
-
-### 🔄 Rollback
-
-Se necessário fazer rollback:
+### Container Nao Inicia
 
 ```bash
-# Voltar para a branch main
-git checkout main
-
-# Redeployar
-docker-compose down
-docker-compose up --build -d
+docker compose logs
+docker compose down
+docker compose up --build
 ```
 
-### 📝 Logs Importantes
+### Erro De Banco
 
-Durante o teste, observe nos logs:
-- Tempo de pré-carregamento dos dados
-- Tempo de processamento por ficha
-- Número de queries executadas
-- Uso de cache
+Confira `.env` e teste conectividade a partir do container:
 
-### 🎯 Testes Recomendados
+```bash
+docker compose exec fichas-generator node -e "const { Pool } = require('pg'); const pool = new Pool(); pool.connect().then(() => { console.log('Conectado'); return pool.end(); }).catch(err => { console.error(err); process.exit(1); });"
+```
 
-1. **Teste de Volume**: Gerar fichas para uma oportunidade com muitas inscrições
-2. **Teste de Concorrência**: Múltiplas gerações simultâneas
-3. **Teste de Estabilidade**: Várias gerações consecutivas
-4. **Teste de Recursos**: Monitorar uso de CPU e memória
+### Anexos Nao Encontrados
 
-### 🚨 Importante
+Confira `FILES_DIR` e o volume no `docker-compose.yml`:
 
-- Esta é uma versão de teste - monitore cuidadosamente
-- Faça backup dos dados antes do teste
-- Tenha a versão original disponível para rollback
-- Documente qualquer problema encontrado
+```bash
+docker compose exec fichas-generator ls -la "$FILES_DIR"
+```
+
+### Logo Incorreta
+
+Confirme `LOGO_PATH` no `.env` e se o arquivo existe dentro do container:
+
+```bash
+docker compose exec fichas-generator ls -la "$LOGO_PATH"
+```
+
+## Rollback
+
+Use o fluxo normal do Git para voltar ao commit anterior e suba o container novamente:
+
+```bash
+git log --oneline
+git revert <commit>
+docker compose up --build -d
+```
