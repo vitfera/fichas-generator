@@ -291,6 +291,22 @@ async function fetchParentOpportunities() {
   }
 }
 
+async function fetchOpportunityById(opportunityId) {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT id, name
+      FROM opportunity
+      WHERE id = $1
+      LIMIT 1;
+    `;
+    const res = await client.query(query, [opportunityId]);
+    return res.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
 // 6.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1
 async function fetchChildrenExcludingNext(parentId) {
   const client = await pool.connect();
@@ -1394,8 +1410,13 @@ app.post('/generate', async (req, res) => {
 
   const includeAttachments = attachmentMode === 'with_attachments';
 
+  let opportunity;
   let zipFilename;
   try {
+    opportunity = await fetchOpportunityById(parentId);
+    if (!opportunity) {
+      return res.status(400).send('Oportunidade não encontrada.');
+    }
     zipFilename = await generateFichas(parentId, filterType, includeAttachments);
   } catch (err) {
     console.error('Erro ao gerar fichas:', err);
@@ -1449,6 +1470,10 @@ app.post('/generate', async (req, res) => {
       .logo-container img {
         max-height: 80px;
       }
+      .result-summary-eyebrow {
+        font-size: 0.75rem;
+        letter-spacing: 0;
+      }
       @media (max-width: 576px) {
         body {
           padding-top: 20px;
@@ -1473,9 +1498,15 @@ app.post('/generate', async (req, res) => {
         <div class="col-md-8">
           <div class="card shadow-sm mb-4">
             <div class="card-body text-center">
-              <h5 class="card-title mb-3">
-                Fichas geradas para oportunidade ${parentId}
+              <p class="result-summary-eyebrow text-uppercase text-muted fw-semibold mb-2">
+                Fichas geradas
+              </p>
+              <h5 class="card-title mb-1 text-break">
+                ${escapeHtml(opportunity.name)}
               </h5>
+              <p class="text-muted small mb-4">
+                Oportunidade #${parentId}
+              </p>
               <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
                 <a href="/downloads/${zipFilename}" class="btn btn-success">
                   Baixar todas as fichas (ZIP)
