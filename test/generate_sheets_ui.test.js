@@ -102,6 +102,29 @@ test('generate route validates attachment mode and keeps current behavior as def
   assert.equal(routeSource.includes('generateFichas(parentId, filterType, includeAttachments)'), true);
 });
 
+test('generate route validates parent id and registration filter type', () => {
+  const routeStart = generateSheetsSource.indexOf("app.post('/generate'");
+  const routeEnd = generateSheetsSource.indexOf('let zipFilename;', routeStart);
+  const routeSource = generateSheetsSource.slice(routeStart, routeEnd);
+
+  assert.equal(routeSource.includes('const parentId = parseInt(req.body.parent, 10);'), true);
+  assert.equal(routeSource.includes('if (isNaN(parentId))'), true);
+  assert.equal(routeSource.includes("return res.status(400).send('Oportunidade inválida.');"), true);
+  assert.equal(routeSource.includes("const validFilters = ['selected', 'selected_and_alternate', 'all'];"), true);
+  assert.equal(routeSource.includes('if (!validFilters.includes(filterType))'), true);
+  assert.equal(routeSource.includes("return res.status(400).send('Tipo de filtro inválido.');"), true);
+});
+
+test('generated files endpoint rejects invalid parent ids', () => {
+  const routeStart = generateSheetsSource.indexOf("app.get('/generated-files'");
+  const routeEnd = generateSheetsSource.indexOf('////////////////////////////////////////////////////////////////////////////////', routeStart);
+  const routeSource = generateSheetsSource.slice(routeStart, routeEnd);
+
+  assert.equal(routeSource.includes('const parentId = parseInt(req.query.parent, 10);'), true);
+  assert.equal(routeSource.includes('if (isNaN(parentId))'), true);
+  assert.equal(routeSource.includes("return res.status(400).json({ error: 'Oportunidade inválida.' });"), true);
+});
+
 test('sheet only mode skips attachment merge and writes separate generated filenames', () => {
   assert.equal(
     generateSheetsSource.includes("async function generateFichas(parentId, filterType = 'selected', includeAttachments = true)"),
@@ -175,4 +198,28 @@ test('template renders appeal phase result with status and justification', () =>
   assert.equal(templateSource.includes('{{this.appealResult.statusText}}'), true);
   assert.equal(templateSource.includes('Justificativa'), true);
   assert.equal(templateSource.includes('{{this.appealResult.parecer}}'), true);
+});
+
+test('template keeps all major sheet sections available', () => {
+  const requiredSections = [
+    'DADOS DO AGENTE CULTURAL',
+    'Fase de Inscrições',
+    'Anexos',
+    'Análise de Mérito',
+    'Avaliação Simplificada',
+    'Resultado do Recurso'
+  ];
+
+  for (const section of requiredSections) {
+    assert.equal(templateSource.includes(section), true, `missing section: ${section}`);
+  }
+});
+
+test('appeal result is rendered separately from merit analysis', () => {
+  const appealIndex = templateSource.indexOf('Resultado do Recurso');
+  const meritIndex = templateSource.indexOf('Análise de Mérito');
+
+  assert.equal(appealIndex > -1, true);
+  assert.equal(meritIndex > -1, true);
+  assert.equal(appealIndex < meritIndex, true);
 });

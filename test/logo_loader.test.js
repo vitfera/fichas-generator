@@ -4,7 +4,19 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { loadLogoBase64 } = require('../logo_loader');
+const { loadLogoBase64, resolveLogoPath } = require('../logo_loader');
+
+test('resolveLogoPath trims LOGO_PATH before resolving it', () => {
+  const result = resolveLogoPath({ LOGO_PATH: '  assets/custom-logo.png  ' }, '/project');
+
+  assert.equal(result, path.join('/project', 'assets/custom-logo.png'));
+});
+
+test('resolveLogoPath falls back to assets/logo.png when LOGO_PATH is blank', () => {
+  const result = resolveLogoPath({ LOGO_PATH: '   ' }, '/project');
+
+  assert.equal(result, path.join('/project', 'assets', 'logo.png'));
+});
 
 test('loadLogoBase64 uses LOGO_PATH when it is absolute', () => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'logo-loader-'));
@@ -40,4 +52,17 @@ test('loadLogoBase64 falls back to assets/logo.png when LOGO_PATH is empty', () 
   const result = loadLogoBase64({ env: {}, projectRoot: tmpDir });
 
   assert.equal(result, logoBuffer.toString('base64'));
+});
+
+test('loadLogoBase64 returns empty string and warns when logo file is missing', () => {
+  const messages = [];
+  const result = loadLogoBase64({
+    env: { LOGO_PATH: 'missing-logo.png' },
+    projectRoot: '/project',
+    warn: message => messages.push(message)
+  });
+
+  assert.equal(result, '');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].includes('/project/missing-logo.png'), true);
 });
