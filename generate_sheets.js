@@ -630,8 +630,9 @@ async function htmlToPdfBuffer(html) {
 // ------------------------------------------------------------
 // 8) Geração de fichas para um parentId - COMPLETAMENTE OTIMIZADA
 // ------------------------------------------------------------
-async function generateFichas(parentId, filterType = 'selected') {
-  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId} (filtro: ${filterType})`);
+async function generateFichas(parentId, filterType = 'selected', includeAttachments = true) {
+  const generationMode = includeAttachments ? 'ficha + anexos' : 'somente ficha';
+  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId} (filtro: ${filterType}, modo: ${generationMode})`);
   const startTime = Date.now();
   
   // 8.1) Buscar todos os filhos (exceto parentId+1)
@@ -732,6 +733,7 @@ async function generateFichas(parentId, filterType = 'selected') {
   console.log(`→ Dados pré-carregados em ${Date.now() - startTime}ms`);
 
   const pdfFilenames = [];
+  const filenameSuffix = includeAttachments ? '' : '_sem_anexos';
   
   // 8.7) Processar cada inscrição com dados pré-carregados
   for (let i = 0; i < registrations.length; i++) {
@@ -824,28 +826,30 @@ async function generateFichas(parentId, filterType = 'selected') {
     const attachmentBuffers = [];
     const seen = new Set();
 
-    for (const phase of phases) {
-      const rId = regIdsByPhase[phase.id];
-      if (!rId) continue;
-      const folder = path.join(FILES_DIR, String(rId));
-      if (!fs.existsSync(folder)) continue;
-      
-      try {
-        const files = fs.readdirSync(folder).filter(f => f.endsWith('.pdf'));
-        for (const name of files) {
-          const p = path.join(folder, name);
-          if (!seen.has(p)) {
-            seen.add(p);
-            attachmentBuffers.push(fs.readFileSync(p));
+    if (includeAttachments) {
+      for (const phase of phases) {
+        const rId = regIdsByPhase[phase.id];
+        if (!rId) continue;
+        const folder = path.join(FILES_DIR, String(rId));
+        if (!fs.existsSync(folder)) continue;
+        
+        try {
+          const files = fs.readdirSync(folder).filter(f => f.endsWith('.pdf'));
+          for (const name of files) {
+            const p = path.join(folder, name);
+            if (!seen.has(p)) {
+              seen.add(p);
+              attachmentBuffers.push(fs.readFileSync(p));
+            }
           }
+        } catch (err) {
+          console.warn(`Erro ao ler pasta ${folder}:`, err);
         }
-      } catch (err) {
-        console.warn(`Erro ao ler pasta ${folder}:`, err);
       }
     }
 
     let finalPdfBuffer = pdfBuffer;
-    if (attachmentBuffers.length) {
+    if (includeAttachments && attachmentBuffers.length) {
       finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
     }
 
@@ -858,7 +862,7 @@ async function generateFichas(parentId, filterType = 'selected') {
       .replace(/\s+/g, '-')
       .replace(/[^a-z0-9\-]/g, '');
 
-    const filename = `ficha_${parentId}_${regNumber}_${nomeSemAcento}.pdf`;
+    const filename = `ficha_${parentId}_${regNumber}_${nomeSemAcento}${filenameSuffix}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     
     try {
@@ -873,7 +877,7 @@ async function generateFichas(parentId, filterType = 'selected') {
   // 8.8) Criar ZIP
   console.log(`\n→ Criando ZIP com ${pdfFilenames.length} arquivos...`);
   const zipStartTime = Date.now();
-  const zipFilename = `fichas_${parentId}.zip`;
+  const zipFilename = `fichas_${parentId}${filenameSuffix}.zip`;
   const zipFilepath = path.join(OUTPUT_DIR, zipFilename);
   const output = fs.createWriteStream(zipFilepath);
   const archive = archiver('zip', { zlib: { level: 9 } });
@@ -1069,6 +1073,14 @@ app.get('/', async (req, res) => {
                   </select>
                   <div class="form-text">Escolha quais inscrições devem ser incluídas nas fichas</div>
                 </div>
+                <div class="mb-3">
+                  <label for="attachmentMode" class="form-label">Incluir anexos:</label>
+                  <select name="attachmentMode" id="attachmentMode" class="form-select" required>
+                    <option value="with_attachments" selected>Ficha + anexos</option>
+                    <option value="sheet_only">Somente ficha</option>
+                  </select>
+                  <div class="form-text">Escolha se os PDFs anexos serão juntados ao final da ficha</div>
+                </div>
                 <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
                   <span id="btnText">Gerar Fichas</span>
                   <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
@@ -1159,6 +1171,7 @@ app.get('/', async (req, res) => {
 app.post('/generate', async (req, res) => {
   const parentId = parseInt(req.body.parent, 10);
   const filterType = req.body.filterType || 'selected';
+  const attachmentMode = req.body.attachmentMode || 'with_attachments';
   
   if (isNaN(parentId)) {
     return res.status(400).send('Oportunidade inválida.');
@@ -1170,9 +1183,16 @@ app.post('/generate', async (req, res) => {
     return res.status(400).send('Tipo de filtro inválido.');
   }
 
+  const validAttachmentModes = ['with_attachments', 'sheet_only'];
+  if (!validAttachmentModes.includes(attachmentMode)) {
+    return res.status(400).send('Tipo de geração inválido.');
+  }
+
+  const includeAttachments = attachmentMode === 'with_attachments';
+
   let zipFilename;
   try {
-    zipFilename = await generateFichas(parentId, filterType);
+    zipFilename = await generateFichas(parentId, filterType, includeAttachments);
   } catch (err) {
     console.error('Erro ao gerar fichas:', err);
     return res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');

@@ -10,7 +10,7 @@ O projeto agora tem um unico ponto de entrada: `generate_sheets.js`.
 - Filtro de inscricoes: selecionadas, selecionadas + suplentes, ou todas avaliadas.
 - Pre-carregamento em lote de inscricoes, metadados, avaliacoes e arquivos.
 - Suporte a multiplas avaliacoes por inscricao/fase.
-- Inclusao de anexos em PDF ao final da ficha gerada.
+- Inclusao opcional de anexos em PDF ao final da ficha gerada, com `Ficha + anexos` como padrao.
 - Logo configuravel por variavel de ambiente com fallback para `assets/logo.png`.
 - Download de PDFs individuais e ZIP consolidado.
 
@@ -98,7 +98,7 @@ fichas-generator/
 
 - `GET /` - formulario de geracao.
 - `GET /generated-files?parent=<id>` - lista PDFs e ZIPs ja gerados para a oportunidade.
-- `POST /generate` - gera fichas para a oportunidade selecionada.
+- `POST /generate` - gera fichas para a oportunidade selecionada, podendo incluir anexos ou gerar somente a ficha.
 - `GET /downloads/<arquivo>` - baixa PDFs e ZIPs gerados.
 - `GET /assets/<arquivo>` - serve arquivos estaticos.
 

@@ -2,6 +2,12 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [Unreleased]
+
+### Adicionado
+- Opção no formulário para escolher entre gerar `Ficha + anexos` ou `Somente ficha`, mantendo `Ficha + anexos` como padrão.
+- Gera arquivos separados com sufixo `_sem_anexos` quando a opção `Somente ficha` é selecionada.
+
 ## [1.5.7] – 2026-07-12
 
 ### Corrigido
