@@ -79,6 +79,18 @@ test('generation result page uses the generated files card layout', () => {
   assert.equal(resultPageSource.includes("type: 'pdf'"), true);
 });
 
+test('generation result page highlights the opportunity name instead of only the id', () => {
+  const routeStart = generateSheetsSource.indexOf("app.post('/generate'");
+  const routeEnd = generateSheetsSource.indexOf('res.send(html);', routeStart);
+  const routeSource = generateSheetsSource.slice(routeStart, routeEnd);
+
+  assert.equal(generateSheetsSource.includes('async function fetchOpportunityById'), true);
+  assert.equal(routeSource.includes('await fetchOpportunityById(parentId)'), true);
+  assert.equal(routeSource.includes('${escapeHtml(opportunity.name)}'), true);
+  assert.equal(routeSource.includes('Oportunidade #${parentId}'), true);
+  assert.equal(routeSource.includes('Fichas geradas para oportunidade ${parentId}'), false);
+});
+
 test('generated files cards reuse the same server-side renderer', () => {
   const rendererMatches = generateSheetsSource.match(/function renderGeneratedFilesCard/g) || [];
   const rendererCallMatches = generateSheetsSource.match(/renderGeneratedFilesCard\(/g) || [];
