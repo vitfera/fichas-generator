@@ -876,6 +876,11 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
 
     // 8.7.3) Processar dados das fases em paralelo
     const phasePromises = phases.map(async (phase) => {
+      const phaseRegistration = registrationsByPhaseMatch[phase.id];
+      if (phase.isAppealPhase && !phaseRegistration) {
+        return null;
+      }
+
       // Para fase pai usa parentMetaArray, para filhas usa o regId correto de cada fase
       const phaseRegId = regIdsByPhase[phase.id] || reg.registration_id;
       
@@ -894,7 +899,6 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
       const files = allFiles[evaluationKey] || [];
       
       const evalObj = await processEvaluation(evalRegId, phase.id, evaluationData);
-      const phaseRegistration = registrationsByPhaseMatch[phase.id];
       const phaseStatus = phaseRegistration
         ? phaseRegistration.registration_status
         : (phase.isAppealPhase ? null : reg.registration_status);
@@ -914,7 +918,7 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
       };
     });
 
-    const dataPhases = await Promise.all(phasePromises);
+    const dataPhases = (await Promise.all(phasePromises)).filter(Boolean);
 
     // 8.7.4) Gerar PDF
     const data = {
