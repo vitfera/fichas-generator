@@ -1,6 +1,6 @@
 {
   "name": "fichas-generator",
-  "version": "1.3.0",
+  "version": "1.6.0",
   "description": "Serviço para gerar fichas de inscrição em PDF a partir do banco Mapas - VERSÃO OTIMIZADA",
   "main": "generate_sheets.js",
   "scripts": {

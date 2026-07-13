@@ -9,7 +9,8 @@ function getGeneratedFileType(filename) {
 
 function isGeneratedFileForOpportunity(filename, parentId) {
   const id = String(parentId);
-  return filename === `fichas_${id}.zip` || (
+  return filename === `fichas_${id}.zip` ||
+    filename === `fichas_${id}_sem_anexos.zip` || (
     filename.startsWith(`ficha_${id}_`) && filename.endsWith('.pdf')
   );
 }

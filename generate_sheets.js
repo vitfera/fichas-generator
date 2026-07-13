@@ -58,10 +58,20 @@ async function mergeWithAttachments(mainBuffer, attachmentBuffers) {
 // ------------------------------------------------------------
 const STATUS_LABELS = {
   0:  'Não avaliada',
+  1:  'Pendente',
   2:  'Inválida',
   3:  'Não selecionada',
   8:  'Suplente',
   10: 'Selecionada'
+};
+
+const OPPORTUNITY_STATUS_APPEAL_PHASE = -20;
+
+const APPEAL_STATUS_LABELS = {
+  1:  'Aguardando resposta',
+  2:  'Negado',
+  3:  'Indeferido',
+  10: 'Deferido'
 };
 
 // ------------------------------------------------------------
@@ -125,7 +135,85 @@ const logoBase64 = loadLogoBase64();
 // ------------------------------------------------------------
 // 5) Formatação de valores: datas e JSON-arrays
 // ------------------------------------------------------------
-function formatValue(raw) {
+const PEOPLE_FIELD_LABELS = {
+  name: 'Nome',
+  fullName: 'Nome completo',
+  socialName: 'Nome social',
+  cpf: 'CPF',
+  cnpj: 'CNPJ',
+  miniCurriculum: 'Mini currículo',
+  income: 'Renda',
+  education: 'Escolaridade',
+  telephone: 'Telefone do representante',
+  email: 'Email do representante',
+  race: 'Raça/Cor',
+  gender: 'Gênero',
+  sexualOrientation: 'Orientação sexual',
+  deficiencies: 'Informações sobre deficiências',
+  comunty: 'Pertencimento a povos ou comunidades tradicionais',
+  community: 'Pertencimento a povos ou comunidades tradicionais',
+  area: 'Áreas de atuação',
+  funcao: 'Funções/Profissões',
+  function: 'Função',
+  relationship: 'Parentesco'
+};
+
+function isBlankValue(value) {
+  if (value == null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0 || value.every(isBlankValue);
+  if (typeof value === 'object') {
+    const entries = Object.entries(value).filter(([key]) => key !== '$$hashKey');
+    return entries.length === 0 || entries.every(([, entryValue]) => isBlankValue(entryValue) || entryValue === false);
+  }
+  return value === false;
+}
+
+function formatNestedValue(value) {
+  if (isBlankValue(value)) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map(formatNestedValue)
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof value === 'object') {
+    const truthyKeys = Object.entries(value)
+      .filter(([key, entryValue]) => key !== '$$hashKey' && entryValue === true)
+      .map(([key]) => key);
+    if (truthyKeys.length) return truthyKeys.join(', ');
+
+    return Object.entries(value)
+      .filter(([key, entryValue]) => key !== '$$hashKey' && !isBlankValue(entryValue))
+      .map(([key, entryValue]) => `${key}: ${formatNestedValue(entryValue)}`)
+      .join('; ');
+  }
+  return String(value).trim();
+}
+
+function formatPeopleList(people) {
+  if (!Array.isArray(people)) return '';
+
+  return people
+    .map(person => {
+      if (!person || typeof person !== 'object' || Array.isArray(person)) {
+        return formatNestedValue(person);
+      }
+
+      const parts = [];
+      for (const [key, value] of Object.entries(person)) {
+        if (key === '$$hashKey' || isBlankValue(value)) continue;
+        const label = PEOPLE_FIELD_LABELS[key] || key;
+        const formattedValue = formatNestedValue(value);
+        if (formattedValue) parts.push(`${label}: ${formattedValue}`);
+      }
+      return parts.join('; ');
+    })
+    .filter(Boolean)
+    .join('<br/><br/>');
+}
+
+function formatValue(raw, fieldType = null) {
   if (raw == null) return '';
 
   // 5.1) Se for string "YYYY-MM-DD"
@@ -152,6 +240,11 @@ function formatValue(raw) {
     } catch {
       parsed = null;
     }
+  } else if (Array.isArray(raw) || (raw && typeof raw === 'object')) {
+    parsed = raw;
+  }
+  if (fieldType === 'persons' && Array.isArray(parsed)) {
+    return formatPeopleList(parsed);
   }
   if (Array.isArray(parsed)) {
     // 5.4) Array de strings/números
@@ -198,36 +291,102 @@ async function fetchParentOpportunities() {
   }
 }
 
-// 6.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1
-async function fetchChildrenExcludingNext(parentId) {
+async function fetchOpportunityById(opportunityId) {
   const client = await pool.connect();
   try {
     const query = `
       SELECT id, name
       FROM opportunity
-      WHERE parent_id = $1
-        AND id != $2
-      ORDER BY id;
+      WHERE id = $1
+      LIMIT 1;
     `;
-    const res = await client.query(query, [parentId, parentId + 1]);
+    const res = await client.query(query, [opportunityId]);
+    return res.rows[0] || null;
+  } finally {
+    client.release();
+  }
+}
+
+// 6.2) Lista todos os filhos de parentId, EXCLUINDO parentId+1
+async function fetchChildrenExcludingNext(parentId) {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT o.id, o.name
+      FROM opportunity o
+      LEFT JOIN opportunity_meta appeal_meta
+        ON appeal_meta.object_id = o.id
+       AND appeal_meta.key = 'isAppealPhase'
+      WHERE o.parent_id = $1
+        AND o.id != $2
+        AND o.status != $3
+        AND COALESCE(appeal_meta.value, '0') NOT IN ('1', 'true', 't')
+      ORDER BY o.id;
+    `;
+    const res = await client.query(query, [parentId, parentId + 1, OPPORTUNITY_STATUS_APPEAL_PHASE]);
     return res.rows;
   } finally {
     client.release();
   }
 }
 
-// 6.3) Busca TODAS as fases relevantes (pai + filhos exceto parentId+1)
-async function fetchAllRelevantPhases(parentId) {
+// 6.3) Busca fases relevantes, inserindo fases de recurso logo após a fase avaliada
+async function fetchRelevantPhasesWithAppeals(parentId) {
   const client = await pool.connect();
   try {
     const query = `
-      SELECT id, name
-      FROM opportunity
-      WHERE (id = $1 OR parent_id = $1)
-        AND id != $1 + 1
-      ORDER BY id;
+      WITH main_phases AS (
+        SELECT
+          main.id,
+          main.name,
+          main.parent_id,
+          main.status,
+          false AS is_appeal_phase,
+          main.id AS sort_phase_id,
+          0 AS sort_order
+        FROM opportunity main
+        LEFT JOIN opportunity_meta main_meta
+          ON main_meta.object_id = main.id
+         AND main_meta.key = 'isAppealPhase'
+        WHERE (main.id = $1 OR main.parent_id = $1)
+          AND main.id != $1 + 1
+          AND main.status != $2
+          AND COALESCE(main_meta.value, '0') NOT IN ('1', 'true', 't')
+      )
+      SELECT id, name, parent_id, status, is_appeal_phase AS "isAppealPhase"
+      FROM (
+        SELECT
+          main.id,
+          main.name,
+          main.parent_id,
+          main.status,
+          main.is_appeal_phase,
+          main.sort_phase_id,
+          main.sort_order
+        FROM main_phases main
+
+        UNION ALL
+
+        SELECT
+          appeal.id,
+          appeal.name,
+          appeal.parent_id,
+          appeal.status,
+          true AS is_appeal_phase,
+          main.id AS sort_phase_id,
+          1 AS sort_order
+        FROM main_phases main
+        JOIN opportunity appeal
+          ON appeal.parent_id = main.id
+        LEFT JOIN opportunity_meta appeal_meta
+          ON appeal_meta.object_id = appeal.id
+         AND appeal_meta.key = 'isAppealPhase'
+        WHERE appeal.status = $2
+           OR COALESCE(appeal_meta.value, '0') IN ('1', 'true', 't')
+      ) phases
+      ORDER BY sort_phase_id, sort_order, id;
     `;
-    const res = await client.query(query, [parentId]);
+    const res = await client.query(query, [parentId, OPPORTUNITY_STATUS_APPEAL_PHASE]);
     return res.rows;
   } finally {
     client.release();
@@ -321,6 +480,7 @@ async function fetchOrderedMetaForRegistrations(regIds, phaseIds) {
         rm.object_id,
         rfc.opportunity_id   AS phase_id,
         rfc.title            AS field_label,
+        rfc.field_type       AS field_type,
         rfc.display_order    AS field_order,
         rm.value             AS field_value
       FROM registration_meta rm
@@ -343,6 +503,7 @@ async function fetchOrderedMetaForRegistrations(regIds, phaseIds) {
       
       grouped[regId][phaseId].push({
         label: row.field_label,
+        fieldType: row.field_type,
         value: row.field_value
       });
     }
@@ -487,20 +648,22 @@ async function fetchFilesForRegistrations(regIds, phaseIds) {
   try {
     const query = `
       SELECT 
-        $1 as reg_id,
+        r.id AS reg_id,
         rfc.opportunity_id AS phase_id,
-        f.name AS file_name
-      FROM registration_file_configuration rfc
+        file_data.name AS file_name
+      FROM registration r
+      JOIN registration_file_configuration rfc
+        ON rfc.opportunity_id = ANY($2::int[])
       LEFT JOIN LATERAL (
-        SELECT name
-        FROM "file"
-        WHERE grp = CONCAT('rfc_', rfc.id)
-          AND object_id = ANY($1::int[])
+        SELECT f.name
+        FROM "file" f
+        WHERE f.grp = CONCAT('rfc_', rfc.id)
+          AND f.object_id = r.id
         ORDER BY id DESC
         LIMIT 1
-      ) f ON TRUE
-      WHERE rfc.opportunity_id = ANY($2::int[])
-      ORDER BY rfc.opportunity_id, rfc.display_order;
+      ) file_data ON TRUE
+      WHERE r.id = ANY($1::int[])
+      ORDER BY r.id, rfc.opportunity_id, rfc.display_order;
     `;
     const res = await client.query(query, [regIds, phaseIds]);
     
@@ -607,6 +770,45 @@ async function processEvaluation(regId, phaseId, evaluationDataArray) {
   };
 }
 
+function parseEvaluationData(rawEval) {
+  if (typeof rawEval === 'string') {
+    try {
+      return JSON.parse(rawEval);
+    } catch {
+      return {};
+    }
+  }
+
+  return rawEval && typeof rawEval === 'object' ? rawEval : {};
+}
+
+function formatAppealStatus(status) {
+  const numericStatus = Number(status);
+  return APPEAL_STATUS_LABELS[numericStatus] || STATUS_LABELS[numericStatus] || '';
+}
+
+function processAppealResult(evaluationDataArray, registrationStatus) {
+  const result = {
+    statusText: formatAppealStatus(registrationStatus),
+    parecer: ''
+  };
+
+  if (!evaluationDataArray || !Array.isArray(evaluationDataArray) || evaluationDataArray.length === 0) {
+    return result;
+  }
+
+  const lastEvaluation = evaluationDataArray[evaluationDataArray.length - 1];
+  const rawEval = parseEvaluationData(lastEvaluation.evaluation_data);
+  const evaluationStatus = rawEval.status !== undefined && rawEval.status !== ''
+    ? rawEval.status
+    : lastEvaluation.total_score;
+
+  result.statusText = formatAppealStatus(evaluationStatus || registrationStatus);
+  result.parecer = rawEval.obs ? String(rawEval.obs) : '';
+
+  return result;
+}
+
 // ------------------------------------------------------------
 // 7) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
 // ------------------------------------------------------------
@@ -630,20 +832,40 @@ async function htmlToPdfBuffer(html) {
 // ------------------------------------------------------------
 // 8) Geração de fichas para um parentId - COMPLETAMENTE OTIMIZADA
 // ------------------------------------------------------------
-async function generateFichas(parentId, filterType = 'selected') {
-  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId} (filtro: ${filterType})`);
+async function generateFichas(parentId, filterType = 'selected', includeAttachments = true) {
+  const generationMode = includeAttachments ? 'ficha + anexos' : 'somente ficha';
+  console.log(`\n→ Iniciando geração OTIMIZADA de fichas para parentId=${parentId} (filtro: ${filterType}, modo: ${generationMode})`);
   const startTime = Date.now();
   
   // 8.1) Buscar todos os filhos (exceto parentId+1)
   const children = await fetchChildrenExcludingNext(parentId);
   console.log(`→ Filhos encontrados: ${children.length}`);
+
+  // 8.2) Carrega todas as fases relevantes, incluindo recursos após suas fases avaliadas
+  let phases = await fetchRelevantPhasesWithAppeals(parentId);
+  if (!phases.length) {
+    const client = await pool.connect();
+    try {
+      const r = await client.query(
+        `SELECT id, name, parent_id, status, false AS "isAppealPhase" FROM opportunity WHERE id = $1 LIMIT 1;`,
+        [parentId]
+      );
+      if (r.rowCount) {
+        phases = [r.rows[0]];
+      }
+    } finally {
+      client.release();
+    }
+  }
   
-  // 8.2) Buscar inscrições para todas as fases de uma vez
-  const phaseIds = [parentId, ...children.map(c => c.id)];
+  console.log(`→ Fases relevantes: ${phases.map(p => p.name).join(', ')}`);
+  
+  // 8.3) Buscar inscrições para todas as fases de uma vez
+  const phaseIds = phases.map(p => p.id);
   const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId, filterType);
   console.log(`→ Inscrições por fase carregadas em lote`);
   
-  // 8.3) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
+  // 8.4) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
   let chosenPhaseId = null;
   let registrations = [];
   
@@ -671,25 +893,6 @@ async function generateFichas(parentId, filterType = 'selected') {
   }
   
   console.log(`→ Usando fase ${chosenPhaseId} com ${registrations.length} inscrições`);
-
-  // 8.4) Carrega TODAS as fases relevantes
-  let phases = await fetchAllRelevantPhases(parentId);
-  if (!phases.length) {
-    const client = await pool.connect();
-    try {
-      const r = await client.query(
-        `SELECT id,name FROM opportunity WHERE id = $1 LIMIT 1;`,
-        [parentId]
-      );
-      if (r.rowCount) {
-        phases = [{ id: r.rows[0].id, name: r.rows[0].name }];
-      }
-    } finally {
-      client.release();
-    }
-  }
-  
-  console.log(`→ Fases relevantes: ${phases.map(p => p.name).join(', ')}`);
 
   // 8.5) Preparar diretórios
   if (!fs.existsSync(OUTPUT_DIR)) {
@@ -732,6 +935,7 @@ async function generateFichas(parentId, filterType = 'selected') {
   console.log(`→ Dados pré-carregados em ${Date.now() - startTime}ms`);
 
   const pdfFilenames = [];
+  const filenameSuffix = includeAttachments ? '' : '_sem_anexos';
   
   // 8.7) Processar cada inscrição com dados pré-carregados
   for (let i = 0; i < registrations.length; i++) {
@@ -751,15 +955,21 @@ async function generateFichas(parentId, filterType = 'selected') {
       const rawParentArray = allMetaData[actualParentRegId][parentId] || [];
       parentMetaArray = rawParentArray.map(item => ({
         label: item.label,
-        value: formatValue(item.value)
+        value: formatValue(item.value, item.fieldType)
       }));
     }
 
     // 8.7.2) Determinar IDs de registro por fase
     const regIdsByPhase = {};
+    const registrationsByPhaseMatch = {};
     for (const phase of phases) {
       const regsThisPhase = registrationsByPhase[phase.id] || [];
-      const match = regsThisPhase.find(r => r.agent_id === reg.agent_id);
+      const match = phase.isAppealPhase
+        ? regsThisPhase.find(r => r.registration_number === reg.registration_number)
+        : regsThisPhase.find(r => r.agent_id === reg.agent_id);
+      registrationsByPhaseMatch[phase.id] = (phase.id === parentId)
+        ? reg
+        : (match || null);
       regIdsByPhase[phase.id] = (phase.id === parentId)
         ? actualParentRegId
         : (match ? match.registration_id : null);
@@ -767,6 +977,11 @@ async function generateFichas(parentId, filterType = 'selected') {
 
     // 8.7.3) Processar dados das fases em paralelo
     const phasePromises = phases.map(async (phase) => {
+      const phaseRegistration = registrationsByPhaseMatch[phase.id];
+      if (phase.isAppealPhase && (!phaseRegistration || phaseRegistration.registration_status === 0)) {
+        return null;
+      }
+
       // Para fase pai usa parentMetaArray, para filhas usa o regId correto de cada fase
       const phaseRegId = regIdsByPhase[phase.id] || reg.registration_id;
       
@@ -774,7 +989,7 @@ async function generateFichas(parentId, filterType = 'selected') {
         ? parentMetaArray
         : ((allMetaData[phaseRegId] && allMetaData[phaseRegId][phase.id]) || []).map(item => ({
             label: item.label,
-            value: formatValue(item.value)
+            value: formatValue(item.value, item.fieldType)
           }));
 
       const evalRegId = phaseRegId;
@@ -785,19 +1000,26 @@ async function generateFichas(parentId, filterType = 'selected') {
       const files = allFiles[evaluationKey] || [];
       
       const evalObj = await processEvaluation(evalRegId, phase.id, evaluationData);
+      const phaseStatus = phaseRegistration
+        ? phaseRegistration.registration_status
+        : (phase.isAppealPhase ? null : reg.registration_status);
 
       return {
         id: phase.id,
         name: phase.name,
+        isAppealPhase: Boolean(phase.isAppealPhase),
         rows: rowsForThisPhase,
         evaluation: evalObj,
-        regStatusText: STATUS_LABELS[reg.registration_status] || '',
+        appealResult: phase.isAppealPhase
+          ? processAppealResult(evaluationData, phaseStatus)
+          : null,
+        regStatusText: STATUS_LABELS[phaseStatus] || '',
         files: files,
         evalRegId: evalRegId
       };
     });
 
-    const dataPhases = await Promise.all(phasePromises);
+    const dataPhases = (await Promise.all(phasePromises)).filter(Boolean);
 
     // 8.7.4) Gerar PDF
     const data = {
@@ -824,28 +1046,30 @@ async function generateFichas(parentId, filterType = 'selected') {
     const attachmentBuffers = [];
     const seen = new Set();
 
-    for (const phase of phases) {
-      const rId = regIdsByPhase[phase.id];
-      if (!rId) continue;
-      const folder = path.join(FILES_DIR, String(rId));
-      if (!fs.existsSync(folder)) continue;
-      
-      try {
-        const files = fs.readdirSync(folder).filter(f => f.endsWith('.pdf'));
-        for (const name of files) {
-          const p = path.join(folder, name);
-          if (!seen.has(p)) {
-            seen.add(p);
-            attachmentBuffers.push(fs.readFileSync(p));
+    if (includeAttachments) {
+      for (const phase of phases) {
+        const rId = regIdsByPhase[phase.id];
+        if (!rId) continue;
+        const folder = path.join(FILES_DIR, String(rId));
+        if (!fs.existsSync(folder)) continue;
+        
+        try {
+          const files = fs.readdirSync(folder).filter(f => f.endsWith('.pdf'));
+          for (const name of files) {
+            const p = path.join(folder, name);
+            if (!seen.has(p)) {
+              seen.add(p);
+              attachmentBuffers.push(fs.readFileSync(p));
+            }
           }
+        } catch (err) {
+          console.warn(`Erro ao ler pasta ${folder}:`, err);
         }
-      } catch (err) {
-        console.warn(`Erro ao ler pasta ${folder}:`, err);
       }
     }
 
     let finalPdfBuffer = pdfBuffer;
-    if (attachmentBuffers.length) {
+    if (includeAttachments && attachmentBuffers.length) {
       finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
     }
 
@@ -858,7 +1082,7 @@ async function generateFichas(parentId, filterType = 'selected') {
       .replace(/\s+/g, '-')
       .replace(/[^a-z0-9\-]/g, '');
 
-    const filename = `ficha_${parentId}_${regNumber}_${nomeSemAcento}.pdf`;
+    const filename = `ficha_${parentId}_${regNumber}_${nomeSemAcento}${filenameSuffix}.pdf`;
     const filepath = path.join(OUTPUT_DIR, filename);
     
     try {
@@ -873,7 +1097,7 @@ async function generateFichas(parentId, filterType = 'selected') {
   // 8.8) Criar ZIP
   console.log(`\n→ Criando ZIP com ${pdfFilenames.length} arquivos...`);
   const zipStartTime = Date.now();
-  const zipFilename = `fichas_${parentId}.zip`;
+  const zipFilename = `fichas_${parentId}${filenameSuffix}.zip`;
   const zipFilepath = path.join(OUTPUT_DIR, zipFilename);
   const output = fs.createWriteStream(zipFilepath);
   const archive = archiver('zip', { zlib: { level: 9 } });
@@ -1069,6 +1293,14 @@ app.get('/', async (req, res) => {
                   </select>
                   <div class="form-text">Escolha quais inscrições devem ser incluídas nas fichas</div>
                 </div>
+                <div class="mb-3">
+                  <label for="attachmentMode" class="form-label">Incluir anexos:</label>
+                  <select name="attachmentMode" id="attachmentMode" class="form-select" required>
+                    <option value="with_attachments" selected>Ficha + anexos</option>
+                    <option value="sheet_only">Somente ficha</option>
+                  </select>
+                  <div class="form-text">Escolha se os PDFs anexos serão juntados ao final da ficha</div>
+                </div>
                 <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
                   <span id="btnText">Gerar Fichas</span>
                   <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
@@ -1159,6 +1391,7 @@ app.get('/', async (req, res) => {
 app.post('/generate', async (req, res) => {
   const parentId = parseInt(req.body.parent, 10);
   const filterType = req.body.filterType || 'selected';
+  const attachmentMode = req.body.attachmentMode || 'with_attachments';
   
   if (isNaN(parentId)) {
     return res.status(400).send('Oportunidade inválida.');
@@ -1170,9 +1403,21 @@ app.post('/generate', async (req, res) => {
     return res.status(400).send('Tipo de filtro inválido.');
   }
 
+  const validAttachmentModes = ['with_attachments', 'sheet_only'];
+  if (!validAttachmentModes.includes(attachmentMode)) {
+    return res.status(400).send('Tipo de geração inválido.');
+  }
+
+  const includeAttachments = attachmentMode === 'with_attachments';
+
+  let opportunity;
   let zipFilename;
   try {
-    zipFilename = await generateFichas(parentId, filterType);
+    opportunity = await fetchOpportunityById(parentId);
+    if (!opportunity) {
+      return res.status(400).send('Oportunidade não encontrada.');
+    }
+    zipFilename = await generateFichas(parentId, filterType, includeAttachments);
   } catch (err) {
     console.error('Erro ao gerar fichas:', err);
     return res.status(500).send('Erro ao gerar fichas. Veja o log no servidor.');
@@ -1225,6 +1470,10 @@ app.post('/generate', async (req, res) => {
       .logo-container img {
         max-height: 80px;
       }
+      .result-summary-eyebrow {
+        font-size: 0.75rem;
+        letter-spacing: 0;
+      }
       @media (max-width: 576px) {
         body {
           padding-top: 20px;
@@ -1249,9 +1498,15 @@ app.post('/generate', async (req, res) => {
         <div class="col-md-8">
           <div class="card shadow-sm mb-4">
             <div class="card-body text-center">
-              <h5 class="card-title mb-3">
-                Fichas geradas para oportunidade ${parentId}
+              <p class="result-summary-eyebrow text-uppercase text-muted fw-semibold mb-2">
+                Fichas geradas
+              </p>
+              <h5 class="card-title mb-1 text-break">
+                ${escapeHtml(opportunity.name)}
               </h5>
+              <p class="text-muted small mb-4">
+                Oportunidade #${parentId}
+              </p>
               <div class="d-grid gap-2 d-sm-flex justify-content-sm-center">
                 <a href="/downloads/${zipFilename}" class="btn btn-success">
                   Baixar todas as fichas (ZIP)
