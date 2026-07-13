@@ -135,7 +135,85 @@ const logoBase64 = loadLogoBase64();
 // ------------------------------------------------------------
 // 5) Formatação de valores: datas e JSON-arrays
 // ------------------------------------------------------------
-function formatValue(raw) {
+const PEOPLE_FIELD_LABELS = {
+  name: 'Nome',
+  fullName: 'Nome completo',
+  socialName: 'Nome social',
+  cpf: 'CPF',
+  cnpj: 'CNPJ',
+  miniCurriculum: 'Mini currículo',
+  income: 'Renda',
+  education: 'Escolaridade',
+  telephone: 'Telefone do representante',
+  email: 'Email do representante',
+  race: 'Raça/Cor',
+  gender: 'Gênero',
+  sexualOrientation: 'Orientação sexual',
+  deficiencies: 'Informações sobre deficiências',
+  comunty: 'Pertencimento a povos ou comunidades tradicionais',
+  community: 'Pertencimento a povos ou comunidades tradicionais',
+  area: 'Áreas de atuação',
+  funcao: 'Funções/Profissões',
+  function: 'Função',
+  relationship: 'Parentesco'
+};
+
+function isBlankValue(value) {
+  if (value == null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0 || value.every(isBlankValue);
+  if (typeof value === 'object') {
+    const entries = Object.entries(value).filter(([key]) => key !== '$$hashKey');
+    return entries.length === 0 || entries.every(([, entryValue]) => isBlankValue(entryValue) || entryValue === false);
+  }
+  return value === false;
+}
+
+function formatNestedValue(value) {
+  if (isBlankValue(value)) return '';
+  if (Array.isArray(value)) {
+    return value
+      .map(formatNestedValue)
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof value === 'object') {
+    const truthyKeys = Object.entries(value)
+      .filter(([key, entryValue]) => key !== '$$hashKey' && entryValue === true)
+      .map(([key]) => key);
+    if (truthyKeys.length) return truthyKeys.join(', ');
+
+    return Object.entries(value)
+      .filter(([key, entryValue]) => key !== '$$hashKey' && !isBlankValue(entryValue))
+      .map(([key, entryValue]) => `${key}: ${formatNestedValue(entryValue)}`)
+      .join('; ');
+  }
+  return String(value).trim();
+}
+
+function formatPeopleList(people) {
+  if (!Array.isArray(people)) return '';
+
+  return people
+    .map(person => {
+      if (!person || typeof person !== 'object' || Array.isArray(person)) {
+        return formatNestedValue(person);
+      }
+
+      const parts = [];
+      for (const [key, value] of Object.entries(person)) {
+        if (key === '$$hashKey' || isBlankValue(value)) continue;
+        const label = PEOPLE_FIELD_LABELS[key] || key;
+        const formattedValue = formatNestedValue(value);
+        if (formattedValue) parts.push(`${label}: ${formattedValue}`);
+      }
+      return parts.join('; ');
+    })
+    .filter(Boolean)
+    .join('<br/><br/>');
+}
+
+function formatValue(raw, fieldType = null) {
   if (raw == null) return '';
 
   // 5.1) Se for string "YYYY-MM-DD"
@@ -162,6 +240,11 @@ function formatValue(raw) {
     } catch {
       parsed = null;
     }
+  } else if (Array.isArray(raw) || (raw && typeof raw === 'object')) {
+    parsed = raw;
+  }
+  if (fieldType === 'persons' && Array.isArray(parsed)) {
+    return formatPeopleList(parsed);
   }
   if (Array.isArray(parsed)) {
     // 5.4) Array de strings/números
@@ -381,6 +464,7 @@ async function fetchOrderedMetaForRegistrations(regIds, phaseIds) {
         rm.object_id,
         rfc.opportunity_id   AS phase_id,
         rfc.title            AS field_label,
+        rfc.field_type       AS field_type,
         rfc.display_order    AS field_order,
         rm.value             AS field_value
       FROM registration_meta rm
@@ -403,6 +487,7 @@ async function fetchOrderedMetaForRegistrations(regIds, phaseIds) {
       
       grouped[regId][phaseId].push({
         label: row.field_label,
+        fieldType: row.field_type,
         value: row.field_value
       });
     }
@@ -854,7 +939,7 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
       const rawParentArray = allMetaData[actualParentRegId][parentId] || [];
       parentMetaArray = rawParentArray.map(item => ({
         label: item.label,
-        value: formatValue(item.value)
+        value: formatValue(item.value, item.fieldType)
       }));
     }
 
@@ -888,7 +973,7 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
         ? parentMetaArray
         : ((allMetaData[phaseRegId] && allMetaData[phaseRegId][phase.id]) || []).map(item => ({
             label: item.label,
-            value: formatValue(item.value)
+            value: formatValue(item.value, item.fieldType)
           }));
 
       const evalRegId = phaseRegId;

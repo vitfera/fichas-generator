@@ -12,6 +12,7 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
 ### Corrigido
 - Lista de arquivos gerados agora também reconhece o ZIP `_sem_anexos` produzido pela opção `Somente ficha`.
+- Campos de `listagem de pessoas` agora aparecem no PDF com rótulos em português e sem subcampos vazios.
 
 ## [1.5.7] – 2026-07-12
 
