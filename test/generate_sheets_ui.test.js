@@ -175,9 +175,20 @@ test('appeal phases without appeal registration are not rendered for that sheet'
   const phasePromiseEnd = generateSheetsSource.indexOf('// 8.7.4)', phasePromiseStart);
   const phasePromiseSource = generateSheetsSource.slice(phasePromiseStart, phasePromiseEnd);
 
-  assert.equal(phasePromiseSource.includes('if (phase.isAppealPhase && !phaseRegistration)'), true);
+  assert.equal(
+    phasePromiseSource.includes('if (phase.isAppealPhase && (!phaseRegistration || phaseRegistration.registration_status === 0))'),
+    true
+  );
   assert.equal(phasePromiseSource.includes('return null;'), true);
   assert.equal(phasePromiseSource.includes('(await Promise.all(phasePromises)).filter(Boolean)'), true);
+});
+
+test('draft appeal registrations are not rendered for that sheet', () => {
+  const phasePromiseStart = generateSheetsSource.indexOf('const phasePromises = phases.map');
+  const phasePromiseEnd = generateSheetsSource.indexOf('// 8.7.4)', phasePromiseStart);
+  const phasePromiseSource = generateSheetsSource.slice(phasePromiseStart, phasePromiseEnd);
+
+  assert.equal(phasePromiseSource.includes('phaseRegistration.registration_status === 0'), true);
 });
 
 test('appeal result uses appeal-specific labels and is passed to the template', () => {

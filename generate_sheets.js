@@ -877,7 +877,7 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
     // 8.7.3) Processar dados das fases em paralelo
     const phasePromises = phases.map(async (phase) => {
       const phaseRegistration = registrationsByPhaseMatch[phase.id];
-      if (phase.isAppealPhase && !phaseRegistration) {
+      if (phase.isAppealPhase && (!phaseRegistration || phaseRegistration.registration_status === 0)) {
         return null;
       }
 
