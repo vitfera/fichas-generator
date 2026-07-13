@@ -12,6 +12,29 @@ const templateSource = fs.readFileSync(
   'utf-8'
 );
 
+function extractFunctionSource(source, functionName) {
+  const start = source.indexOf(`function ${functionName}`);
+  assert.notEqual(start, -1, `missing function ${functionName}`);
+
+  const bodyStart = source.indexOf('{', start);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index++) {
+    const char = source[index];
+    if (char === '{') depth++;
+    if (char === '}') depth--;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+
+  throw new Error(`could not extract function ${functionName}`);
+}
+
+const formatValueSource = extractFunctionSource(generateSheetsSource, 'formatValue');
+const formatHelpersStart = generateSheetsSource.indexOf('const PEOPLE_FIELD_LABELS');
+const formatHelpersEnd = generateSheetsSource.indexOf(formatValueSource) + formatValueSource.length;
+const formatValue = Function(
+  `${generateSheetsSource.slice(formatHelpersStart, formatHelpersEnd)}; return formatValue;`
+)();
+
 test('generate form does not show legacy optimization badge or alert', () => {
   assert.equal(generateSheetsSource.includes('performance-badge'), false);
   assert.equal(generateSheetsSource.includes('<span class="performance-badge">OTIMIZADO</span>'), false);
@@ -135,6 +158,54 @@ test('sheet only mode skips attachment merge and writes separate generated filen
   assert.equal(generateSheetsSource.includes("const filenameSuffix = includeAttachments ? '' : '_sem_anexos';"), true);
   assert.equal(generateSheetsSource.includes('`ficha_${parentId}_${regNumber}_${nomeSemAcento}${filenameSuffix}.pdf`'), true);
   assert.equal(generateSheetsSource.includes('`fichas_${parentId}${filenameSuffix}.zip`'), true);
+});
+
+test('people list fields render Portuguese labels and omit blank values', () => {
+  const rawPeople = JSON.stringify([
+    {
+      name: 'John da Silva Meireles',
+      fullName: '',
+      socialName: '',
+      cpf: '030.816.651-59',
+      income: '',
+      education: '',
+      telephone: '',
+      email: '',
+      race: '',
+      gender: '',
+      sexualOrientation: '',
+      deficiencies: {},
+      comunty: '',
+      area: [],
+      funcao: ['Produtor Cultural']
+    },
+    {
+      name: 'Raquel Pedrosa do Amaral',
+      cpf: '708.666.181-39',
+      funcao: []
+    }
+  ]);
+
+  const formatted = formatValue(rawPeople, 'persons');
+
+  assert.match(formatted, /Nome: John da Silva Meireles/);
+  assert.match(formatted, /CPF: 030\.816\.651-59/);
+  assert.match(formatted, /Funções\/Profissões: Produtor Cultural/);
+  assert.match(formatted, /Nome: Raquel Pedrosa do Amaral/);
+  assert.doesNotMatch(formatted, /\bname:/);
+  assert.doesNotMatch(formatted, /\bfullName:/);
+  assert.doesNotMatch(formatted, /Nome completo:\s*(;|<br\/>)/);
+  assert.doesNotMatch(formatted, /Email do representante:\s*(;|<br\/>)/);
+});
+
+test('registration metadata formatting receives the field type from MapasCulturais', () => {
+  const metaFunctionStart = generateSheetsSource.indexOf('async function fetchOrderedMetaForRegistrations');
+  const metaFunctionEnd = generateSheetsSource.indexOf('// Cache para seções e critérios', metaFunctionStart);
+  const metaFunctionSource = generateSheetsSource.slice(metaFunctionStart, metaFunctionEnd);
+
+  assert.equal(metaFunctionSource.includes('rfc.field_type'), true);
+  assert.equal(metaFunctionSource.includes('fieldType: row.field_type'), true);
+  assert.equal(generateSheetsSource.includes('formatValue(item.value, item.fieldType)'), true);
 });
 
 test('relevant phases include appeal phases marked with MapasCulturais appeal status', () => {
