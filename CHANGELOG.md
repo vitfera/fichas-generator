@@ -2,7 +2,7 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
-## [Unreleased]
+## [1.6.0] – 2026-07-13
 
 ### Adicionado
 - Opção no formulário para escolher entre gerar `Ficha + anexos` ou `Somente ficha`, mantendo `Ficha + anexos` como padrão.
