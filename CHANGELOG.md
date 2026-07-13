@@ -8,6 +8,10 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 - Opção no formulário para escolher entre gerar `Ficha + anexos` ou `Somente ficha`, mantendo `Ficha + anexos` como padrão.
 - Gera arquivos separados com sufixo `_sem_anexos` quando a opção `Somente ficha` é selecionada.
 - Fases de recurso do MapasCulturais agora entram na ficha logo após a fase avaliada, com campos, anexos, status e justificativa do recurso.
+- Ampliada a cobertura automatizada para listagem de arquivos gerados, carregamento de logo, validações das rotas e seções principais do template PDF.
+
+### Corrigido
+- Lista de arquivos gerados agora também reconhece o ZIP `_sem_anexos` produzido pela opção `Somente ficha`.
 
 ## [1.5.7] – 2026-07-12
 
