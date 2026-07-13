@@ -58,10 +58,20 @@ async function mergeWithAttachments(mainBuffer, attachmentBuffers) {
 // ------------------------------------------------------------
 const STATUS_LABELS = {
   0:  'Não avaliada',
+  1:  'Pendente',
   2:  'Inválida',
   3:  'Não selecionada',
   8:  'Suplente',
   10: 'Selecionada'
+};
+
+const OPPORTUNITY_STATUS_APPEAL_PHASE = -20;
+
+const APPEAL_STATUS_LABELS = {
+  1:  'Aguardando resposta',
+  2:  'Negado',
+  3:  'Indeferido',
+  10: 'Deferido'
 };
 
 // ------------------------------------------------------------
@@ -203,31 +213,81 @@ async function fetchChildrenExcludingNext(parentId) {
   const client = await pool.connect();
   try {
     const query = `
-      SELECT id, name
-      FROM opportunity
-      WHERE parent_id = $1
-        AND id != $2
-      ORDER BY id;
+      SELECT o.id, o.name
+      FROM opportunity o
+      LEFT JOIN opportunity_meta appeal_meta
+        ON appeal_meta.object_id = o.id
+       AND appeal_meta.key = 'isAppealPhase'
+      WHERE o.parent_id = $1
+        AND o.id != $2
+        AND o.status != $3
+        AND COALESCE(appeal_meta.value, '0') NOT IN ('1', 'true', 't')
+      ORDER BY o.id;
     `;
-    const res = await client.query(query, [parentId, parentId + 1]);
+    const res = await client.query(query, [parentId, parentId + 1, OPPORTUNITY_STATUS_APPEAL_PHASE]);
     return res.rows;
   } finally {
     client.release();
   }
 }
 
-// 6.3) Busca TODAS as fases relevantes (pai + filhos exceto parentId+1)
-async function fetchAllRelevantPhases(parentId) {
+// 6.3) Busca fases relevantes, inserindo fases de recurso logo após a fase avaliada
+async function fetchRelevantPhasesWithAppeals(parentId) {
   const client = await pool.connect();
   try {
     const query = `
-      SELECT id, name
-      FROM opportunity
-      WHERE (id = $1 OR parent_id = $1)
-        AND id != $1 + 1
-      ORDER BY id;
+      WITH main_phases AS (
+        SELECT
+          main.id,
+          main.name,
+          main.parent_id,
+          main.status,
+          false AS is_appeal_phase,
+          main.id AS sort_phase_id,
+          0 AS sort_order
+        FROM opportunity main
+        LEFT JOIN opportunity_meta main_meta
+          ON main_meta.object_id = main.id
+         AND main_meta.key = 'isAppealPhase'
+        WHERE (main.id = $1 OR main.parent_id = $1)
+          AND main.id != $1 + 1
+          AND main.status != $2
+          AND COALESCE(main_meta.value, '0') NOT IN ('1', 'true', 't')
+      )
+      SELECT id, name, parent_id, status, is_appeal_phase AS "isAppealPhase"
+      FROM (
+        SELECT
+          main.id,
+          main.name,
+          main.parent_id,
+          main.status,
+          main.is_appeal_phase,
+          main.sort_phase_id,
+          main.sort_order
+        FROM main_phases main
+
+        UNION ALL
+
+        SELECT
+          appeal.id,
+          appeal.name,
+          appeal.parent_id,
+          appeal.status,
+          true AS is_appeal_phase,
+          main.id AS sort_phase_id,
+          1 AS sort_order
+        FROM main_phases main
+        JOIN opportunity appeal
+          ON appeal.parent_id = main.id
+        LEFT JOIN opportunity_meta appeal_meta
+          ON appeal_meta.object_id = appeal.id
+         AND appeal_meta.key = 'isAppealPhase'
+        WHERE appeal.status = $2
+           OR COALESCE(appeal_meta.value, '0') IN ('1', 'true', 't')
+      ) phases
+      ORDER BY sort_phase_id, sort_order, id;
     `;
-    const res = await client.query(query, [parentId]);
+    const res = await client.query(query, [parentId, OPPORTUNITY_STATUS_APPEAL_PHASE]);
     return res.rows;
   } finally {
     client.release();
@@ -487,20 +547,22 @@ async function fetchFilesForRegistrations(regIds, phaseIds) {
   try {
     const query = `
       SELECT 
-        $1 as reg_id,
+        r.id AS reg_id,
         rfc.opportunity_id AS phase_id,
-        f.name AS file_name
-      FROM registration_file_configuration rfc
+        file_data.name AS file_name
+      FROM registration r
+      JOIN registration_file_configuration rfc
+        ON rfc.opportunity_id = ANY($2::int[])
       LEFT JOIN LATERAL (
-        SELECT name
-        FROM "file"
-        WHERE grp = CONCAT('rfc_', rfc.id)
-          AND object_id = ANY($1::int[])
+        SELECT f.name
+        FROM "file" f
+        WHERE f.grp = CONCAT('rfc_', rfc.id)
+          AND f.object_id = r.id
         ORDER BY id DESC
         LIMIT 1
-      ) f ON TRUE
-      WHERE rfc.opportunity_id = ANY($2::int[])
-      ORDER BY rfc.opportunity_id, rfc.display_order;
+      ) file_data ON TRUE
+      WHERE r.id = ANY($1::int[])
+      ORDER BY r.id, rfc.opportunity_id, rfc.display_order;
     `;
     const res = await client.query(query, [regIds, phaseIds]);
     
@@ -607,6 +669,45 @@ async function processEvaluation(regId, phaseId, evaluationDataArray) {
   };
 }
 
+function parseEvaluationData(rawEval) {
+  if (typeof rawEval === 'string') {
+    try {
+      return JSON.parse(rawEval);
+    } catch {
+      return {};
+    }
+  }
+
+  return rawEval && typeof rawEval === 'object' ? rawEval : {};
+}
+
+function formatAppealStatus(status) {
+  const numericStatus = Number(status);
+  return APPEAL_STATUS_LABELS[numericStatus] || STATUS_LABELS[numericStatus] || '';
+}
+
+function processAppealResult(evaluationDataArray, registrationStatus) {
+  const result = {
+    statusText: formatAppealStatus(registrationStatus),
+    parecer: ''
+  };
+
+  if (!evaluationDataArray || !Array.isArray(evaluationDataArray) || evaluationDataArray.length === 0) {
+    return result;
+  }
+
+  const lastEvaluation = evaluationDataArray[evaluationDataArray.length - 1];
+  const rawEval = parseEvaluationData(lastEvaluation.evaluation_data);
+  const evaluationStatus = rawEval.status !== undefined && rawEval.status !== ''
+    ? rawEval.status
+    : lastEvaluation.total_score;
+
+  result.statusText = formatAppealStatus(evaluationStatus || registrationStatus);
+  result.parecer = rawEval.obs ? String(rawEval.obs) : '';
+
+  return result;
+}
+
 // ------------------------------------------------------------
 // 7) Converte HTML em PDF via Puppeteer-core + Chromium do sistema
 // ------------------------------------------------------------
@@ -638,13 +739,32 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
   // 8.1) Buscar todos os filhos (exceto parentId+1)
   const children = await fetchChildrenExcludingNext(parentId);
   console.log(`→ Filhos encontrados: ${children.length}`);
+
+  // 8.2) Carrega todas as fases relevantes, incluindo recursos após suas fases avaliadas
+  let phases = await fetchRelevantPhasesWithAppeals(parentId);
+  if (!phases.length) {
+    const client = await pool.connect();
+    try {
+      const r = await client.query(
+        `SELECT id, name, parent_id, status, false AS "isAppealPhase" FROM opportunity WHERE id = $1 LIMIT 1;`,
+        [parentId]
+      );
+      if (r.rowCount) {
+        phases = [r.rows[0]];
+      }
+    } finally {
+      client.release();
+    }
+  }
   
-  // 8.2) Buscar inscrições para todas as fases de uma vez
-  const phaseIds = [parentId, ...children.map(c => c.id)];
+  console.log(`→ Fases relevantes: ${phases.map(p => p.name).join(', ')}`);
+  
+  // 8.3) Buscar inscrições para todas as fases de uma vez
+  const phaseIds = phases.map(p => p.id);
   const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId, filterType);
   console.log(`→ Inscrições por fase carregadas em lote`);
   
-  // 8.3) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
+  // 8.4) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
   let chosenPhaseId = null;
   let registrations = [];
   
@@ -672,25 +792,6 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
   }
   
   console.log(`→ Usando fase ${chosenPhaseId} com ${registrations.length} inscrições`);
-
-  // 8.4) Carrega TODAS as fases relevantes
-  let phases = await fetchAllRelevantPhases(parentId);
-  if (!phases.length) {
-    const client = await pool.connect();
-    try {
-      const r = await client.query(
-        `SELECT id,name FROM opportunity WHERE id = $1 LIMIT 1;`,
-        [parentId]
-      );
-      if (r.rowCount) {
-        phases = [{ id: r.rows[0].id, name: r.rows[0].name }];
-      }
-    } finally {
-      client.release();
-    }
-  }
-  
-  console.log(`→ Fases relevantes: ${phases.map(p => p.name).join(', ')}`);
 
   // 8.5) Preparar diretórios
   if (!fs.existsSync(OUTPUT_DIR)) {
@@ -759,9 +860,15 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
 
     // 8.7.2) Determinar IDs de registro por fase
     const regIdsByPhase = {};
+    const registrationsByPhaseMatch = {};
     for (const phase of phases) {
       const regsThisPhase = registrationsByPhase[phase.id] || [];
-      const match = regsThisPhase.find(r => r.agent_id === reg.agent_id);
+      const match = phase.isAppealPhase
+        ? regsThisPhase.find(r => r.registration_number === reg.registration_number)
+        : regsThisPhase.find(r => r.agent_id === reg.agent_id);
+      registrationsByPhaseMatch[phase.id] = (phase.id === parentId)
+        ? reg
+        : (match || null);
       regIdsByPhase[phase.id] = (phase.id === parentId)
         ? actualParentRegId
         : (match ? match.registration_id : null);
@@ -787,13 +894,21 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
       const files = allFiles[evaluationKey] || [];
       
       const evalObj = await processEvaluation(evalRegId, phase.id, evaluationData);
+      const phaseRegistration = registrationsByPhaseMatch[phase.id];
+      const phaseStatus = phaseRegistration
+        ? phaseRegistration.registration_status
+        : (phase.isAppealPhase ? null : reg.registration_status);
 
       return {
         id: phase.id,
         name: phase.name,
+        isAppealPhase: Boolean(phase.isAppealPhase),
         rows: rowsForThisPhase,
         evaluation: evalObj,
-        regStatusText: STATUS_LABELS[reg.registration_status] || '',
+        appealResult: phase.isAppealPhase
+          ? processAppealResult(evaluationData, phaseStatus)
+          : null,
+        regStatusText: STATUS_LABELS[phaseStatus] || '',
         files: files,
         evalRegId: evalRegId
       };

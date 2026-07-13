@@ -7,6 +7,7 @@ O projeto agora tem um unico ponto de entrada: `generate_sheets.js`.
 ## Funcionalidades
 
 - Geracao de fichas para uma oportunidade principal e suas fases relacionadas.
+- Inclusao de fases de recurso logo apos a fase avaliada, quando configuradas no MapasCulturais.
 - Filtro de inscricoes: selecionadas, selecionadas + suplentes, ou todas avaliadas.
 - Pre-carregamento em lote de inscricoes, metadados, avaliacoes e arquivos.
 - Suporte a multiplas avaliacoes por inscricao/fase.

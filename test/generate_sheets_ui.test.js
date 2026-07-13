@@ -7,6 +7,10 @@ const generateSheetsSource = fs.readFileSync(
   path.join(__dirname, '..', 'generate_sheets.js'),
   'utf-8'
 );
+const templateSource = fs.readFileSync(
+  path.join(__dirname, '..', 'templates', 'ficha-inscricao.html'),
+  'utf-8'
+);
 
 test('generate form does not show legacy optimization badge or alert', () => {
   assert.equal(generateSheetsSource.includes('performance-badge'), false);
@@ -108,4 +112,67 @@ test('sheet only mode skips attachment merge and writes separate generated filen
   assert.equal(generateSheetsSource.includes("const filenameSuffix = includeAttachments ? '' : '_sem_anexos';"), true);
   assert.equal(generateSheetsSource.includes('`ficha_${parentId}_${regNumber}_${nomeSemAcento}${filenameSuffix}.pdf`'), true);
   assert.equal(generateSheetsSource.includes('`fichas_${parentId}${filenameSuffix}.zip`'), true);
+});
+
+test('relevant phases include appeal phases marked with MapasCulturais appeal status', () => {
+  const phaseFunctionStart = generateSheetsSource.indexOf('async function fetchRelevantPhasesWithAppeals');
+  const phaseFunctionEnd = generateSheetsSource.indexOf('// 6.4)', phaseFunctionStart);
+  const phaseFunctionSource = generateSheetsSource.slice(phaseFunctionStart, phaseFunctionEnd);
+
+  assert.equal(generateSheetsSource.includes('const OPPORTUNITY_STATUS_APPEAL_PHASE = -20;'), true);
+  assert.equal(phaseFunctionStart > -1, true);
+  assert.equal(phaseFunctionSource.includes('appeal.parent_id = main.id'), true);
+  assert.equal(phaseFunctionSource.includes('appeal.status = $2'), true);
+  assert.equal(phaseFunctionSource.includes("appeal_meta.key = 'isAppealPhase'"), true);
+  assert.equal(phaseFunctionSource.includes('is_appeal_phase'), true);
+  assert.equal(phaseFunctionSource.includes('ORDER BY sort_phase_id, sort_order, id'), true);
+});
+
+test('appeal phase registration is matched by registration number instead of agent only', () => {
+  const phaseMapStart = generateSheetsSource.indexOf('const regIdsByPhase = {};');
+  const phaseMapEnd = generateSheetsSource.indexOf('// 8.7.3)', phaseMapStart);
+  const phaseMapSource = generateSheetsSource.slice(phaseMapStart, phaseMapEnd);
+
+  assert.equal(phaseMapSource.includes('phase.isAppealPhase'), true);
+  assert.equal(phaseMapSource.includes('r.registration_number === reg.registration_number'), true);
+  assert.equal(phaseMapSource.includes('r.agent_id === reg.agent_id'), true);
+  assert.equal(phaseMapSource.includes('registrationsByPhaseMatch[phase.id]'), true);
+});
+
+test('appeal phases without appeal registration do not inherit the main registration status', () => {
+  const phasePromiseStart = generateSheetsSource.indexOf('const phasePromises = phases.map');
+  const phasePromiseEnd = generateSheetsSource.indexOf('return {', phasePromiseStart);
+  const phasePromiseSource = generateSheetsSource.slice(phasePromiseStart, phasePromiseEnd);
+
+  assert.equal(phasePromiseSource.includes('phase.isAppealPhase ? null : reg.registration_status'), true);
+});
+
+test('appeal result uses appeal-specific labels and is passed to the template', () => {
+  assert.equal(generateSheetsSource.includes('const APPEAL_STATUS_LABELS = {'), true);
+  assert.equal(generateSheetsSource.includes('1:  \'Aguardando resposta\''), true);
+  assert.equal(generateSheetsSource.includes('2:  \'Negado\''), true);
+  assert.equal(generateSheetsSource.includes('3:  \'Indeferido\''), true);
+  assert.equal(generateSheetsSource.includes('10: \'Deferido\''), true);
+  assert.equal(generateSheetsSource.includes('function processAppealResult'), true);
+  assert.equal(generateSheetsSource.includes('appealResult: phase.isAppealPhase'), true);
+});
+
+test('file lookup groups attached file names by registration id and phase id', () => {
+  const filesFunctionStart = generateSheetsSource.indexOf('async function fetchFilesForRegistrations');
+  const filesFunctionEnd = generateSheetsSource.indexOf('// 6.10)', filesFunctionStart);
+  const filesFunctionSource = generateSheetsSource.slice(filesFunctionStart, filesFunctionEnd);
+
+  assert.equal(filesFunctionSource.includes('r.id AS reg_id'), true);
+  assert.equal(filesFunctionSource.includes('FROM registration r'), true);
+  assert.equal(filesFunctionSource.includes('f.object_id = r.id'), true);
+  assert.equal(filesFunctionSource.includes('WHERE r.id = ANY($1::int[])'), true);
+});
+
+test('template renders appeal phase result with status and justification', () => {
+  assert.equal(templateSource.includes('{{#if this.isAppealPhase}}'), true);
+  assert.equal(templateSource.includes('Resultado do Recurso'), true);
+  assert.equal(templateSource.includes('Status do Recurso'), true);
+  assert.equal(templateSource.includes('{{this.appealResult.statusText}}'), true);
+  assert.equal(templateSource.includes('Justificativa'), true);
+  assert.equal(templateSource.includes('{{this.appealResult.parecer}}'), true);
 });
