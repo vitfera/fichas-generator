@@ -2,6 +2,26 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [Não publicado]
+
+### Alterado
+- Separado o HTML da regra de negócio: as páginas do gerador saíram de template literals dentro das rotas para templates Handlebars em `src/web/views/`, com o CSS em `assets/css/app.css` e o JavaScript do formulário em `assets/js/index-page.js`.
+- Regras puras extraídas para `src/domain/` (formatação de campos, rótulos de status, leitura de avaliações e opções de geração), sem dependência de banco ou de HTML.
+- Renderização do PDF isolada em `src/pdf/ficha-renderer.js` e app Express extraído para `src/web/app.js`, com todas as dependências injetadas.
+- Filtros de inscrição e modos de anexo passaram a ter uma fonte única de verdade, usada tanto pelos `<select>` do formulário quanto pela validação das rotas.
+- `generate_sheets.js` reduzido de 1544 para ~700 linhas, cuidando apenas de acesso ao banco, orquestração da geração e bootstrap.
+- Consultas ao banco passaram a usar o helper `withClient`, eliminando a repetição de `connect`/`release`.
+- Caminho do Chromium agora é configurável por `CHROMIUM_PATH`, com `/usr/bin/chromium` como padrão.
+- `puppeteer-core` passou a ser declarado como dependência direta (era resolvido apenas de forma transitiva por `puppeteer`, que não era usado pelo código).
+
+### Corrigido
+- Nome da oportunidade vindo do banco agora é escapado no `<select>` da página inicial; antes era interpolado sem escape.
+- Ficha não quebra mais quando `evaluation_data` chega nula ou não-objeto — antes a geração da ficha era abortada com `TypeError`.
+- Removida uma consulta de metadados das inscrições-pai cujo resultado nunca era utilizado.
+
+### Testes
+- Substituídos os testes que faziam asserção sobre o texto-fonte de `generate_sheets.js` por testes de comportamento: domínio testado diretamente e rotas exercitadas por HTTP real com dependências falsas, incluindo casos de escape e de validação de entrada.
+
 ## [1.6.0] – 2026-07-13
 
 ### Adicionado
