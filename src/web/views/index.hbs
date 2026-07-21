@@ -1,0 +1,46 @@
+      <div class="row justify-content-center">
+        <div class="col-md-6">
+          <div class="card shadow-sm">
+            <div class="card-body">
+              <h5 class="card-title text-center mb-4">
+                Gerar Fichas de Inscrição
+              </h5>
+              <form id="formGenerate" action="/generate" method="POST">
+                <div class="mb-3">
+                  <label for="parent" class="form-label">Escolha a oportunidade principal:</label>
+                  <select name="parent" id="parent" class="form-select" required>
+                    <option value="" disabled selected>-- selecione --</option>
+                    {{#each opportunities}}
+                    <option value="{{this.id}}">{{this.name}}</option>
+                    {{/each}}
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <label for="filterType" class="form-label">Filtrar inscrições:</label>
+                  <select name="filterType" id="filterType" class="form-select" required>
+                    {{#each filterOptions}}
+                    <option value="{{this.value}}">{{this.label}}</option>
+                    {{/each}}
+                  </select>
+                  <div class="form-text">Escolha quais inscrições devem ser incluídas nas fichas</div>
+                </div>
+                <div class="mb-3">
+                  <label for="attachmentMode" class="form-label">Incluir anexos:</label>
+                  <select name="attachmentMode" id="attachmentMode" class="form-select" required>
+                    {{#each attachmentOptions}}
+                    <option value="{{this.value}}"{{#if this.selected}} selected{{/if}}>{{this.label}}</option>
+                    {{/each}}
+                  </select>
+                  <div class="form-text">Escolha se os PDFs anexos serão juntados ao final da ficha</div>
+                </div>
+                <button id="btnSubmit" type="submit" class="btn btn-primary w-100">
+                  <span id="btnText">Gerar Fichas</span>
+                  <span id="loadingSpinner" class="spinner-border spinner-border-sm ms-2" role="status" aria-hidden="true"></span>
+                </button>
+              </form>
+            </div>
+          </div>
+
+{{> generatedFilesCard title="Arquivos já gerados" className="card shadow-sm mt-3" blockId="generatedFilesBlock" contentId="generatedFilesContent" countId="generatedFilesCount" hidden=true}}
+        </div>
+      </div>
