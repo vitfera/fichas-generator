@@ -1,0 +1,6 @@
+{{#each files}}
+      <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2" href="{{this.url}}" target="_blank">
+        <span class="text-break">{{this.name}}</span>
+        <span class="badge text-bg-light">{{typeLabel this.type}}</span>
+      </a>
+{{/each}}

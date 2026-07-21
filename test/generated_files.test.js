@@ -4,7 +4,7 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
-const { listGeneratedFilesForOpportunity } = require('../generated_files');
+const { listGeneratedFilesForOpportunity, listResultFilesForGeneration } = require('../generated_files');
 
 test('listGeneratedFilesForOpportunity returns generated ZIP and PDFs for the selected parent', () => {
   const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'generated-files-'));
@@ -93,5 +93,33 @@ test('listGeneratedFilesForOpportunity includes sheet-only zip files', () => {
   assert.deepEqual(result.map(file => file.name).sort(), [
     'ficha_123_AC001_maria_sem_anexos.pdf',
     'fichas_123_sem_anexos.zip'
+  ]);
+});
+
+test('listResultFilesForGeneration puts the new ZIP first, then the opportunity PDFs', () => {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'result-files-'));
+  for (const name of [
+    'ficha_123_AC002_joao.pdf',
+    'ficha_123_AC001_maria.pdf',
+    'ficha_456_AC003_ana.pdf',
+    'ficha_123_outro.txt'
+  ]) {
+    fs.writeFileSync(path.join(outputDir, name), 'x');
+  }
+
+  const result = listResultFilesForGeneration(outputDir, 123, 'fichas_123.zip');
+
+  assert.deepEqual(result, [
+    { name: 'fichas_123.zip', url: '/downloads/fichas_123.zip', type: 'zip' },
+    { name: 'ficha_123_AC001_maria.pdf', url: '/downloads/ficha_123_AC001_maria.pdf', type: 'pdf' },
+    { name: 'ficha_123_AC002_joao.pdf', url: '/downloads/ficha_123_AC002_joao.pdf', type: 'pdf' }
+  ]);
+});
+
+test('listResultFilesForGeneration still returns the ZIP when the output dir cannot be read', () => {
+  const result = listResultFilesForGeneration('/caminho/inexistente', 123, 'fichas_123.zip');
+
+  assert.deepEqual(result, [
+    { name: 'fichas_123.zip', url: '/downloads/fichas_123.zip', type: 'zip' }
   ]);
 });

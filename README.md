@@ -39,7 +39,11 @@ SERVER_PORT=4444
 LOGO_PATH=assets/logo.png
 
 FILES_DIR=/srv/mapas/docker-data/private-files/registration
+CHROMIUM_PATH=/usr/bin/chromium
 ```
+
+`CHROMIUM_PATH` e opcional e aponta para o executavel do Chromium usado na
+geracao dos PDFs. Quando nao informado, o sistema usa `/usr/bin/chromium`.
 
 `LOGO_PATH` e opcional. Quando nao informado, o sistema usa `assets/logo.png`. O caminho pode ser absoluto ou relativo a raiz do projeto.
 
@@ -80,20 +84,45 @@ docker compose run --rm fichas-generator node --check generate_sheets.js
 
 ```text
 fichas-generator/
-├── generate_sheets.js              # servidor principal
+├── generate_sheets.js              # acesso ao banco, orquestracao da geracao e bootstrap
+├── generated_files.js              # listagem dos arquivos ja gerados
 ├── logo_loader.js                  # carregamento da logo configuravel
+├── src/
+│   ├── domain/                     # regras puras, sem banco e sem HTML
+│   │   ├── format.js               # formatacao dos valores de campo do MapasCulturais
+│   │   ├── status.js               # rotulos de status de inscricao e de recurso
+│   │   ├── evaluation.js           # leitura das avaliacoes tecnicas e de recurso
+│   │   └── generation-options.js   # filtros e modos de anexo (formulario + validacao)
+│   ├── web/
+│   │   ├── app.js                  # fabrica do app Express, com dependencias injetadas
+│   │   ├── views.js                # compilacao dos templates das paginas
+│   │   └── views/                  # HTML das paginas (layout, index, result, partials)
+│   └── pdf/
+│       └── ficha-renderer.js       # template da ficha + conversao HTML -> PDF
 ├── templates/
 │   └── ficha-inscricao.html        # template HTML das fichas
 ├── assets/
 │   ├── css/bootstrap.min.css
+│   ├── css/app.css                 # estilos das paginas do gerador
 │   ├── js/bootstrap.bundle.min.js
+│   ├── js/index-page.js            # comportamento do formulario
 │   ├── logo.png
 │   └── logo_editais_goias.png
 ├── test/
+│   ├── domain_format.test.js
+│   ├── domain_evaluation.test.js
+│   ├── domain_generation_options.test.js
+│   ├── ficha_template.test.js
+│   ├── web_app.test.js
+│   ├── generated_files.test.js
 │   ├── logo_loader.test.js
 │   └── project_consolidation.test.js
 └── output/                         # PDFs e ZIPs gerados
 ```
+
+Nenhum HTML fica embutido em codigo JavaScript: as paginas do gerador vivem em
+`src/web/views/*.hbs` e a ficha em `templates/ficha-inscricao.html`. O escape e
+responsabilidade do Handlebars, nao das rotas.
 
 ## Rotas
 

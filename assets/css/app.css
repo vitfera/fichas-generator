@@ -1,0 +1,31 @@
+body {
+  padding-top: 40px;
+  background-color: #f8f9fa;
+}
+
+.logo-container {
+  margin-bottom: 30px;
+}
+
+.logo-container img {
+  max-height: 80px;
+}
+
+#loadingSpinner {
+  display: none;
+}
+
+.generated-files-block {
+  display: none;
+}
+
+.result-summary-eyebrow {
+  font-size: 0.75rem;
+  letter-spacing: 0;
+}
+
+@media (max-width: 576px) {
+  body {
+    padding-top: 20px;
+  }
+}

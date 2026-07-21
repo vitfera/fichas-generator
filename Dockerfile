@@ -45,10 +45,12 @@ RUN apt-get update && \
 # 3. Definir diretório de trabalho
 WORKDIR /usr/src/app
 
-# 4. Copiar package.json e instruir Puppeteer a NÃO baixar Chromium próprio
+# 4. Copiar manifestos e instalar exatamente as versões do lockfile.
+#    npm ci falha quando package.json e package-lock.json divergem, em vez de
+#    reescrever o lockfile silenciosamente como faria npm install.
 ENV PUPPETEER_SKIP_DOWNLOAD=1
-COPY package.json package-lock.json* ./
-RUN npm install --production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 # 5. Copiar todo o restante do código-fonte
 COPY . .
