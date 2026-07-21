@@ -2,7 +2,7 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
-## [Não publicado]
+## [1.7.0] – 2026-07-21
 
 ### Alterado
 - Separado o HTML da regra de negócio: as páginas do gerador saíram de template literals dentro das rotas para templates Handlebars em `src/web/views/`, com o CSS em `assets/css/app.css` e o JavaScript do formulário em `assets/js/index-page.js`.
