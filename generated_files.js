@@ -44,6 +44,27 @@ function listGeneratedFilesForOpportunity(outputDir, parentId) {
     });
 }
 
+/**
+ * Arquivos exibidos na página de resultado: o ZIP recém-gerado primeiro,
+ * seguido de todos os PDFs daquela oportunidade.
+ */
+function listResultFilesForGeneration(outputDir, parentId, zipFilename) {
+  let pdfFiles = [];
+  try {
+    pdfFiles = fs.readdirSync(outputDir)
+      .filter(filename => filename.startsWith(`ficha_${parentId}_`) && filename.toLowerCase().endsWith('.pdf'))
+      .sort();
+  } catch (err) {
+    console.error('Erro ao listar PDFs gerados:', err);
+  }
+
+  return [
+    { name: zipFilename, url: `/downloads/${zipFilename}`, type: 'zip' },
+    ...pdfFiles.map(name => ({ name, url: `/downloads/${name}`, type: 'pdf' }))
+  ];
+}
+
 module.exports = {
-  listGeneratedFilesForOpportunity
+  listGeneratedFilesForOpportunity,
+  listResultFilesForGeneration
 };
