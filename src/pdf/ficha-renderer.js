@@ -71,8 +71,8 @@ async function mergeWithAttachments(mainBuffer, attachmentBuffers) {
       const pdf = await PDFDocument.load(buf);
       const pages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
       pages.forEach(page => mergedPdf.addPage(page));
-    } catch {
-      console.warn('Arquivo anexo inválido, pulando...');
+    } catch (error) {
+      throw new Error('Não foi possível mesclar um anexo PDF.', { cause: error });
     }
   }
   return mergedPdf.save();
