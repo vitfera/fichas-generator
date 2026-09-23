@@ -2,7 +2,7 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
-## [Não lançado]
+## [1.8.1] – 2026-09-23
 
 ### Corrigido
 - Geração `Ficha + anexos` voltou a carregar, para cada fase, somente os PDFs válidos registrados no banco e disponíveis no volume remoto montado em `FILES_DIR`.
