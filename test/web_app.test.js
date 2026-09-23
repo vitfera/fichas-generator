@@ -282,6 +282,26 @@ test('POST /generate accepts pending registrations for evaluation', async () => 
   assert.deepEqual(calls, [[34, 'pending', false]]);
 });
 
+test('GET /generated-files works after a generation result renders the shared partial', async () => {
+  const files = [{ name: 'fichas_34_sem_anexos.zip', url: '/downloads/fichas_34_sem_anexos.zip', type: 'zip' }];
+  await withServer({
+    listResultFilesForGeneration: () => files,
+    listGeneratedFilesForOpportunity: () => files
+  }, async request => {
+    const generation = await request.post('/generate', {
+      parent: '34', filterType: 'pending', attachmentMode: 'sheet_only'
+    });
+    assert.equal(generation.status, 200);
+    assert.match(await generation.text(), /fichas_34_sem_anexos\.zip/);
+
+    const listing = await request.get('/generated-files?parent=34');
+    assert.equal(listing.status, 200);
+    const body = await listing.json();
+    assert.deepEqual(body.files, files);
+    assert.match(body.html, /href="\/downloads\/fichas_34_sem_anexos\.zip"/);
+  });
+});
+
 test('POST /generate defaults to selected registrations with attachments', async () => {
   const calls = [];
   await withServer({
