@@ -2,7 +2,7 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
-## [Não lançado]
+## [1.8.0] – 2026-09-23
 
 ### Adicionado
 - Filtro de status do resultado na lista de oportunidades: Publicado (padrão), Não publicado e Todos.
