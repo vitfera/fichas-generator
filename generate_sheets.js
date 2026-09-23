@@ -37,7 +37,7 @@ const archiver   = require('archiver');
 const { STATUS_LABELS, OPPORTUNITY_STATUS_APPEAL_PHASE } = require('./src/domain/status');
 const { formatValue, slugifyAgentName } = require('./src/domain/format');
 const { processEvaluation, processAppealResult, buildSectionsWithCriteria } = require('./src/domain/evaluation');
-const { statusFilterFor } = require('./src/domain/generation-options');
+const { statusFilterFor, DEFAULT_RESULT_STATUS, publishedRegistrationsFor } = require('./src/domain/generation-options');
 const { renderFichaPdf, mergeWithAttachments, logoBase64 } = require('./src/pdf/ficha-renderer');
 const { createApp } = require('./src/web/app');
 const { listGeneratedFilesForOpportunity, listResultFilesForGeneration } = require('./generated_files');
@@ -82,17 +82,17 @@ async function withClient(fn) {
 // 2) Funções de acesso ao banco
 // ------------------------------------------------------------
 
-// 2.1) Lista todas as oportunidades-pai (parent_id IS NULL)
-async function fetchParentOpportunities() {
+// 2.1) Lista oportunidades-pai ativas pelo status de publicação do resultado
+async function fetchParentOpportunities(resultStatus = DEFAULT_RESULT_STATUS) {
   return withClient(async client => {
     const res = await client.query(`
       SELECT id, name
       FROM opportunity
       WHERE parent_id IS NULL
-      AND published_registrations
+      AND ($1::boolean IS NULL OR COALESCE(published_registrations, false) = $1)
       AND status = 1
       ORDER BY name;
-    `);
+    `, [publishedRegistrationsFor(resultStatus)]);
     return res.rows;
   });
 }

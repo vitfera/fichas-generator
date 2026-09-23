@@ -5,6 +5,18 @@
               <h5 class="card-title text-center mb-4">
                 Gerar Fichas de Inscrição
               </h5>
+              <form id="formResultStatus" action="/" method="GET" class="mb-3">
+                <label for="resultStatus" class="form-label">Status do resultado:</label>
+                <div class="d-flex gap-2">
+                  <select name="resultStatus" id="resultStatus" class="form-select" required>
+                    {{#each resultStatusOptions}}
+                    <option value="{{this.value}}"{{#if this.selected}} selected{{/if}}>{{this.label}}</option>
+                    {{/each}}
+                  </select>
+                  <button type="submit" class="btn btn-outline-primary">Filtrar</button>
+                </div>
+                <div class="form-text">Para gerar fichas antes da publicação do resultado, escolha Não publicado.</div>
+              </form>
               <form id="formGenerate" action="/generate" method="POST">
                 <div class="mb-3">
                   <label for="parent" class="form-label">Escolha a oportunidade principal:</label>
@@ -15,6 +27,9 @@
                     {{/each}}
                   </select>
                 </div>
+                {{#unless opportunities}}
+                <div class="form-text mb-3">Nenhuma oportunidade encontrada para o status do resultado escolhido.</div>
+                {{/unless}}
                 <div class="mb-3">
                   <label for="filterType" class="form-label">Filtrar inscrições:</label>
                   <select name="filterType" id="filterType" class="form-select" required>

@@ -65,6 +65,67 @@ test('GET / lists the parent opportunities in the select', async () => {
   });
 });
 
+test('GET / defaults to published results', async () => {
+  const calls = [];
+  await withServer({
+    fetchParentOpportunities: async status => { calls.push(status); return []; }
+  }, async request => {
+    const response = await request.get('/');
+    const html = await response.text();
+
+    assert.equal(response.status, 200);
+    assert.match(html, /<option value="published" selected>Publicado<\/option>/);
+    assert.match(html, /<option value="unpublished">Não publicado<\/option>/);
+    assert.match(html, /<option value="all">Todos<\/option>/);
+  });
+  assert.deepEqual(calls, ['published']);
+});
+
+
+test('GET / filters opportunities by result status and keeps the chosen option', async () => {
+  const calls = [];
+  await withServer({
+    fetchParentOpportunities: async status => {
+      calls.push(status);
+      return status === 'published' ? [] : [{ id: 34, name: 'Edital de Uruaçu' }];
+    }
+  }, async request => {
+    for (const status of ['published', 'unpublished', 'all']) {
+      const response = await request.get('/?resultStatus=' + status);
+      const html = await response.text();
+
+      assert.equal(response.status, 200);
+      assert.ok(html.includes('<option value="' + status + '" selected>'));
+      assert.equal(html.includes('<option value="34">'), status !== 'published');
+    }
+  });
+  assert.deepEqual(calls, ['published', 'unpublished', 'all']);
+});
+
+
+test('GET / rejects invalid result status without querying opportunities', async () => {
+  let called = false;
+  await withServer({
+    fetchParentOpportunities: async () => { called = true; return []; }
+  }, async request => {
+    for (const query of ['resultStatus=invalid', 'resultStatus=', 'resultStatus[]=published', 'resultStatus=published&resultStatus=all']) {
+      const response = await request.get('/?' + query);
+      assert.equal(response.status, 400);
+      assert.equal(await response.text(), 'Status do resultado inválido.');
+    }
+  });
+  assert.equal(called, false);
+});
+
+
+test('GET / explains when the chosen status has no opportunities', async () => {
+  await withServer({ fetchParentOpportunities: async () => [] }, async request => {
+    const html = await (await request.get('/?resultStatus=unpublished')).text();
+    assert.match(html, /Nenhuma oportunidade encontrada para o status do resultado escolhido/);
+  });
+});
+
+
 test('GET / escapes opportunity names coming from the database', async () => {
   await withServer({
     fetchParentOpportunities: async () => [

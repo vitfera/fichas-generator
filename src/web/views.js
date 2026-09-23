@@ -43,11 +43,11 @@ function renderPage(viewName, { title, logoBase64 = '', pageScript = '' }, data)
   }).trim();
 }
 
-function renderIndexPage({ opportunities, filterOptions, attachmentOptions, logoBase64 }) {
+function renderIndexPage({ opportunities, resultStatusOptions, filterOptions, attachmentOptions, logoBase64 }) {
   return renderPage(
     'index',
     { title: 'Gerar Fichas de Inscrição', logoBase64, pageScript: '/assets/js/index-page.js' },
-    { opportunities, filterOptions, attachmentOptions }
+    { opportunities, resultStatusOptions, filterOptions, attachmentOptions }
   );
 }
 
