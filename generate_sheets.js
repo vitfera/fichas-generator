@@ -40,6 +40,7 @@ const { processEvaluation, processAppealResult, buildSectionsWithCriteria } = re
 const { statusFilterFor, DEFAULT_RESULT_STATUS, publishedRegistrationsFor } = require('./src/domain/generation-options');
 const { selectRegistrationsForGeneration } = require('./src/domain/registration-selection');
 const { renderFichaPdf, mergeWithAttachments, logoBase64 } = require('./src/pdf/ficha-renderer');
+const { readAttachmentBuffers } = require('./src/pdf/attachment-reader');
 const { createApp } = require('./src/web/app');
 const { listGeneratedFilesForOpportunity, listResultFilesForGeneration } = require('./generated_files');
 
@@ -426,36 +427,7 @@ async function fetchFilesForRegistrations(regIds, phaseIds) {
 }
 
 // ------------------------------------------------------------
-// 3) Leitura dos anexos em disco
-// ------------------------------------------------------------
-function readAttachmentBuffers(regIdsByPhase, phases) {
-  const buffers = [];
-  const seen = new Set();
-
-  for (const phase of phases) {
-    const rId = regIdsByPhase[phase.id];
-    if (!rId) continue;
-    const folder = path.join(FILES_DIR, String(rId));
-    if (!fs.existsSync(folder)) continue;
-
-    try {
-      for (const name of fs.readdirSync(folder).filter(f => f.endsWith('.pdf'))) {
-        const p = path.join(folder, name);
-        if (!seen.has(p)) {
-          seen.add(p);
-          buffers.push(fs.readFileSync(p));
-        }
-      }
-    } catch (err) {
-      console.warn(`Erro ao ler pasta ${folder}:`, err);
-    }
-  }
-
-  return buffers;
-}
-
-// ------------------------------------------------------------
-// 4) Geração de fichas para um parentId
+// 3) Geração de fichas para um parentId
 // ------------------------------------------------------------
 async function generateFichas(parentId, filterType = 'selected', includeAttachments = true) {
   const generationMode = includeAttachments ? 'ficha + anexos' : 'somente ficha';
@@ -627,7 +599,7 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
     // 4.7.5) Anexar arquivos PDF
     let finalPdfBuffer = pdfBuffer;
     if (includeAttachments) {
-      const attachmentBuffers = readAttachmentBuffers(regIdsByPhase, phases);
+      const attachmentBuffers = readAttachmentBuffers(dataPhases, FILES_DIR);
       if (attachmentBuffers.length) {
         finalPdfBuffer = await mergeWithAttachments(pdfBuffer, attachmentBuffers);
       }

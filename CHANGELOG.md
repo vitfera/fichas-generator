@@ -2,6 +2,15 @@
 
 Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 
+## [1.8.1] – 2026-09-23
+
+### Corrigido
+- Geração `Ficha + anexos` voltou a carregar, para cada fase, somente os PDFs válidos registrados no banco e disponíveis no volume remoto montado em `FILES_DIR`.
+- Arquivos registrados mas ausentes ou PDFs inválidos agora interrompem a geração com erro, em vez de produzir silenciosamente uma ficha sem todos os anexos.
+
+### Testes
+- Adicionada cobertura para leitura de anexos de múltiplas fases, deduplicação, arquivos remotos ausentes e mesclagem das páginas PDF.
+
 ## [1.8.0] – 2026-09-23
 
 ### Adicionado
