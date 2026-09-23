@@ -38,6 +38,7 @@ const { STATUS_LABELS, OPPORTUNITY_STATUS_APPEAL_PHASE } = require('./src/domain
 const { formatValue, slugifyAgentName } = require('./src/domain/format');
 const { processEvaluation, processAppealResult, buildSectionsWithCriteria } = require('./src/domain/evaluation');
 const { statusFilterFor, DEFAULT_RESULT_STATUS, publishedRegistrationsFor } = require('./src/domain/generation-options');
+const { selectRegistrationsForGeneration } = require('./src/domain/registration-selection');
 const { renderFichaPdf, mergeWithAttachments, logoBase64 } = require('./src/pdf/ficha-renderer');
 const { createApp } = require('./src/web/app');
 const { listGeneratedFilesForOpportunity, listResultFilesForGeneration } = require('./generated_files');
@@ -205,6 +206,7 @@ async function fetchRegistrationsForPhases(phaseIds, parentId, filterType = 'sel
         r.id     AS registration_id,
         r.number AS registration_number,
         r.status AS registration_status,
+        (${statusFilterFor(filterType)}) AS matches_filter,
         r.opportunity_id AS phase_id,
         a.id     AS agent_id,
         a.name   AS agent_name
@@ -477,27 +479,10 @@ async function generateFichas(parentId, filterType = 'selected', includeAttachme
   const registrationsByPhase = await fetchRegistrationsForPhases(phaseIds, parentId, filterType);
   console.log(`→ Inscrições por fase carregadas em lote`);
 
-  // 4.4) Encontrar a fase que tenha inscrições - PRIORIZA A FASE PAI
-  let chosenPhaseId = null;
-  let registrations = [];
-
-  const regsParent = registrationsByPhase[parentId] || [];
-  if (regsParent.length > 0) {
-    chosenPhaseId = parentId;
-    registrations = regsParent;
-  }
-
-  // Se a fase pai não tiver inscrições, usa a primeira filha que tiver
-  if (!chosenPhaseId) {
-    for (const child of children) {
-      const regs = registrationsByPhase[child.id] || [];
-      if (regs.length > 0) {
-        chosenPhaseId = child.id;
-        registrations = regs;
-        break;
-      }
-    }
-  }
+  // 4.4) Prioriza a fase pai e respeita o filtro também ao usar uma fase filha
+  const { chosenPhaseId, registrations } = selectRegistrationsForGeneration(
+    registrationsByPhase, parentId, children
+  );
 
   if (!chosenPhaseId) {
     throw new Error(`Nenhuma inscrição encontrada para parentId=${parentId}`);

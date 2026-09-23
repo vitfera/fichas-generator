@@ -8,7 +8,8 @@
 const REGISTRATION_FILTERS = [
   { value: 'selected',               label: 'Apenas selecionadas (status 10)',            statusFilter: 'r.status = 10' },
   { value: 'selected_and_alternate', label: 'Selecionadas e suplentes (status 8 e 10)',   statusFilter: 'r.status IN (8, 10)' },
-  { value: 'all',                    label: 'Todas inscritas (exceto não avaliadas)',     statusFilter: 'r.status != 0' }
+  { value: 'pending',                label: 'Pendentes de avaliação (status 1)',          statusFilter: 'r.status = 1' },
+  { value: 'all',                    label: 'Todas enviadas (exceto rascunhos)',           statusFilter: 'r.status != 0' }
 ];
 
 const DEFAULT_FILTER = 'selected';

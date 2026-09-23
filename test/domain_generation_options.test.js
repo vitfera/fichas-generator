@@ -17,6 +17,7 @@ const {
 test('registration filters map to the expected registration statuses', () => {
   assert.equal(statusFilterFor('selected'), 'r.status = 10');
   assert.equal(statusFilterFor('selected_and_alternate'), 'r.status IN (8, 10)');
+  assert.equal(statusFilterFor('pending'), 'r.status = 1');
   assert.equal(statusFilterFor('all'), 'r.status != 0');
 });
 
@@ -28,6 +29,7 @@ test('an unknown filter falls back to selected only', () => {
 test('only the documented filters are accepted', () => {
   assert.equal(isValidFilterType('selected'), true);
   assert.equal(isValidFilterType('selected_and_alternate'), true);
+  assert.equal(isValidFilterType('pending'), true);
   assert.equal(isValidFilterType('all'), true);
   assert.equal(isValidFilterType('todas'), false);
   assert.equal(isValidFilterType(''), false);

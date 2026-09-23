@@ -81,7 +81,6 @@ test('GET / defaults to published results', async () => {
   assert.deepEqual(calls, ['published']);
 });
 
-
 test('GET / filters opportunities by result status and keeps the chosen option', async () => {
   const calls = [];
   await withServer({
@@ -102,7 +101,6 @@ test('GET / filters opportunities by result status and keeps the chosen option',
   assert.deepEqual(calls, ['published', 'unpublished', 'all']);
 });
 
-
 test('GET / rejects invalid result status without querying opportunities', async () => {
   let called = false;
   await withServer({
@@ -117,14 +115,12 @@ test('GET / rejects invalid result status without querying opportunities', async
   assert.equal(called, false);
 });
 
-
 test('GET / explains when the chosen status has no opportunities', async () => {
   await withServer({ fetchParentOpportunities: async () => [] }, async request => {
     const html = await (await request.get('/?resultStatus=unpublished')).text();
     assert.match(html, /Nenhuma oportunidade encontrada para o status do resultado escolhido/);
   });
 });
-
 
 test('GET / escapes opportunity names coming from the database', async () => {
   await withServer({
@@ -157,7 +153,8 @@ test('GET / offers every registration filter and attachment mode', async () => {
 
     assert.match(html, /<option value="selected">/);
     assert.match(html, /<option value="selected_and_alternate">/);
-    assert.match(html, /<option value="all">/);
+    assert.match(html, /<option value="pending">Pendentes de avaliação \(status 1\)<\/option>/);
+    assert.match(html, /<option value="all">Todas enviadas \(exceto rascunhos\)<\/option>/);
     assert.match(html, /<option value="with_attachments" selected>Ficha \+ anexos<\/option>/);
     assert.match(html, /<option value="sheet_only">Somente ficha<\/option>/);
   });
@@ -266,6 +263,23 @@ test('POST /generate passes the chosen filter and attachment mode to the generat
   });
 
   assert.deepEqual(calls, [[9, 'selected_and_alternate', false]]);
+});
+
+test('POST /generate accepts pending registrations for evaluation', async () => {
+  const calls = [];
+  await withServer({
+    generateFichas: async (...args) => {
+      calls.push(args);
+      return 'fichas_34_sem_anexos.zip';
+    }
+  }, async request => {
+    const response = await request.post('/generate', {
+      parent: '34', filterType: 'pending', attachmentMode: 'sheet_only'
+    });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /fichas_34_sem_anexos\.zip/);
+  });
+  assert.deepEqual(calls, [[34, 'pending', false]]);
 });
 
 test('POST /generate defaults to selected registrations with attachments', async () => {
