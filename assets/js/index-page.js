@@ -6,6 +6,11 @@ const parentSelect = document.getElementById('parent');
 const generatedFilesBlock = document.getElementById('generatedFilesBlock');
 const generatedFilesContent = document.getElementById('generatedFilesContent');
 const generatedFilesCount = document.getElementById('generatedFilesCount');
+const resultStatusSelect = document.getElementById('resultStatus');
+
+resultStatusSelect?.addEventListener('change', () => {
+  resultStatusSelect.form.requestSubmit();
+});
 
 function renderGeneratedFiles(files, html) {
   generatedFilesBlock.style.display = 'block';

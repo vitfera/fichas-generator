@@ -3,6 +3,10 @@ const test = require('node:test');
 
 const {
   REGISTRATION_FILTERS,
+  RESULT_STATUS_OPTIONS,
+  DEFAULT_RESULT_STATUS,
+  isValidResultStatus,
+  publishedRegistrationsFor,
   ATTACHMENT_MODES,
   isValidFilterType,
   isValidAttachmentMode,
@@ -13,6 +17,7 @@ const {
 test('registration filters map to the expected registration statuses', () => {
   assert.equal(statusFilterFor('selected'), 'r.status = 10');
   assert.equal(statusFilterFor('selected_and_alternate'), 'r.status IN (8, 10)');
+  assert.equal(statusFilterFor('pending'), 'r.status = 1');
   assert.equal(statusFilterFor('all'), 'r.status != 0');
 });
 
@@ -24,6 +29,7 @@ test('an unknown filter falls back to selected only', () => {
 test('only the documented filters are accepted', () => {
   assert.equal(isValidFilterType('selected'), true);
   assert.equal(isValidFilterType('selected_and_alternate'), true);
+  assert.equal(isValidFilterType('pending'), true);
   assert.equal(isValidFilterType('all'), true);
   assert.equal(isValidFilterType('todas'), false);
   assert.equal(isValidFilterType(''), false);
@@ -54,4 +60,22 @@ test('every option offered in the form is also accepted by the validation', () =
 test('exactly one attachment mode is pre-selected in the form', () => {
   assert.equal(ATTACHMENT_MODES.filter(mode => mode.selected).length, 1);
   assert.equal(ATTACHMENT_MODES.find(mode => mode.selected).value, 'with_attachments');
+});
+
+test('publication filters default to published and distinguish unpublished from all', () => {
+  assert.equal(DEFAULT_RESULT_STATUS, 'published');
+  assert.equal(publishedRegistrationsFor(undefined), true);
+  assert.equal(publishedRegistrationsFor('invalid'), true);
+  assert.equal(publishedRegistrationsFor('published'), true);
+  assert.equal(publishedRegistrationsFor('unpublished'), false);
+  assert.equal(publishedRegistrationsFor('all'), null);
+});
+
+test('only the documented publication filters are accepted', () => {
+  for (const option of RESULT_STATUS_OPTIONS) {
+    assert.equal(isValidResultStatus(option.value), true);
+  }
+  for (const invalid of ['', 'invalid', undefined, ['published'], { value: 'published' }]) {
+    assert.equal(isValidResultStatus(invalid), false);
+  }
 });

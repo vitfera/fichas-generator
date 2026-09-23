@@ -8,7 +8,8 @@ O projeto agora tem um unico ponto de entrada: `generate_sheets.js`.
 
 - Geracao de fichas para uma oportunidade principal e suas fases relacionadas.
 - Inclusao de fases de recurso logo apos a fase avaliada, quando configuradas no MapasCulturais.
-- Filtro de inscricoes: selecionadas, selecionadas + suplentes, ou todas avaliadas.
+- Filtro de publicacao do resultado: publicado (padrao), nao publicado ou todos.
+- Filtro de inscricoes: selecionadas, selecionadas + suplentes, pendentes de avaliacao ou todas enviadas (exceto rascunhos).
 - Pre-carregamento em lote de inscricoes, metadados, avaliacoes e arquivos.
 - Suporte a multiplas avaliacoes por inscricao/fase.
 - Inclusao opcional de anexos em PDF ao final da ficha gerada, com `Ficha + anexos` como padrao.
@@ -42,6 +43,15 @@ FILES_DIR=/srv/mapas/docker-data/private-files/registration
 CHROMIUM_PATH=/usr/bin/chromium
 ```
 
+`FILES_DIR` deve apontar para o caminho absoluto da pasta de inscricoes no
+servidor, contendo as subpastas `<registration_id>/*.pdf`. Cada instalacao pode
+usar um caminho diferente. O Docker Compose monta essa origem automaticamente,
+como somente leitura, em `/data/registration` e configura esse caminho interno
+para a aplicacao. Quando `FILES_DIR` nao e informado, a origem padrao continua
+sendo `/srv/mapas/docker-data/private-files/registration`.
+
+Na execucao local, a aplicacao le diretamente o caminho definido em `FILES_DIR`.
+
 `CHROMIUM_PATH` e opcional e aponta para o executavel do Chromium usado na
 geracao dos PDFs. Quando nao informado, o sistema usa `/usr/bin/chromium`.
 
@@ -65,6 +75,17 @@ http://localhost:4444
 npm install
 npm run generate
 ```
+
+## Fichas Para Avaliacao
+
+1. Em **Status do resultado**, escolha **Nao publicado** para listar oportunidades cujo resultado ainda nao foi publicado. A lista atualiza ao trocar a opcao; o botao **Filtrar** tambem permite aplicar o filtro.
+2. Escolha a oportunidade principal (por exemplo, a oportunidade 34).
+3. Em **Filtrar inscricoes**, selecione **Pendentes de avaliacao (status 1)**.
+4. Escolha **Ficha + anexos** ou **Somente ficha** e clique em **Gerar Fichas**.
+
+Inscricoes pendentes podem ser exportadas sem avaliacoes cadastradas. Rascunhos
+(status 0) ficam fora desse filtro. A tela inicia com resultados publicados e
+inscricoes selecionadas, como padrao.
 
 ## Testes
 
@@ -92,7 +113,8 @@ fichas-generator/
 │   │   ├── format.js               # formatacao dos valores de campo do MapasCulturais
 │   │   ├── status.js               # rotulos de status de inscricao e de recurso
 │   │   ├── evaluation.js           # leitura das avaliacoes tecnicas e de recurso
-│   │   └── generation-options.js   # filtros e modos de anexo (formulario + validacao)
+│   │   ├── generation-options.js   # filtros e modos de anexo (formulario + validacao)
+│   │   └── registration-selection.js # selecao de inscricoes por fase e filtro
 │   ├── web/
 │   │   ├── app.js                  # fabrica do app Express, com dependencias injetadas
 │   │   ├── views.js                # compilacao dos templates das paginas
@@ -126,7 +148,7 @@ responsabilidade do Handlebars, nao das rotas.
 
 ## Rotas
 
-- `GET /` - formulario de geracao.
+- `GET /?resultStatus=published|unpublished|all` - formulario de geracao com filtro de publicacao do resultado; o padrao e `published`.
 - `GET /generated-files?parent=<id>` - lista PDFs e ZIPs ja gerados para a oportunidade.
 - `POST /generate` - gera fichas para a oportunidade selecionada, podendo incluir anexos ou gerar somente a ficha.
 - `GET /downloads/<arquivo>` - baixa PDFs e ZIPs gerados.
@@ -140,7 +162,15 @@ Verifique as variaveis `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` e `DB_NAME
 
 ### Anexos nao aparecem
 
-Confirme se `FILES_DIR` aponta para o diretorio correto dos arquivos privados de inscricao e se esse caminho esta montado no container quando necessario.
+Confirme se `FILES_DIR` no `.env` aponta para a pasta de inscricoes existente no
+servidor. Depois de alterar essa configuracao ou atualizar o volume do Compose,
+recrie o container para aplicar a montagem:
+
+```bash
+docker compose up -d --force-recreate fichas-generator
+```
+
+Os PDFs gerados antes da correcao precisam ser gerados novamente com **Ficha + anexos**.
 
 ### Logo nao aparece
 

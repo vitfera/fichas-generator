@@ -9,6 +9,10 @@ services:
     env_file:
       - .env
 
+    environment:
+      # Caminho interno fixo; a origem no host vem de FILES_DIR no .env.
+      FILES_DIR: /data/registration
+
     volumes:
       # Mapeia a pasta de saída local para OUTPUT_DIR dentro do container
       - ./output:/usr/src/app/output
@@ -16,8 +20,8 @@ services:
       - ./assets:/usr/src/app/assets
       # Mapeia a pasta de templates para dentro do container
       - ./templates:/usr/src/app/templates
-      # Mapeia a pasta de arquivos de inscrições
-      - /srv/mapas/docker-data/private-files/registration:/srv/mapas/docker-data/private-files/registration:ro
+      # Cada servidor configura a pasta de inscrições no FILES_DIR do .env.
+      - "${FILES_DIR:-/srv/mapas/docker-data/private-files/registration}:/data/registration:ro"
 
     ports:
       - "4444:4444"

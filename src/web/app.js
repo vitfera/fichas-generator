@@ -11,6 +11,9 @@ const express = require('express');
 
 const {
   REGISTRATION_FILTERS,
+  RESULT_STATUS_OPTIONS,
+  DEFAULT_RESULT_STATUS,
+  isValidResultStatus,
   ATTACHMENT_MODES,
   DEFAULT_FILTER,
   DEFAULT_ATTACHMENT_MODE,
@@ -44,15 +47,24 @@ function createApp({
   app.use('/assets', express.static(assetsDir));
 
   app.get('/', async (req, res) => {
+    const resultStatus = req.query.resultStatus ?? DEFAULT_RESULT_STATUS;
+    if (!isValidResultStatus(resultStatus)) {
+      return res.status(400).send('Status do resultado inválido.');
+    }
+
     let opportunities = [];
     try {
-      opportunities = await fetchParentOpportunities();
+      opportunities = await fetchParentOpportunities(resultStatus);
     } catch (err) {
       logger.error('Erro ao buscar oportunidades-pai:', err);
     }
 
     res.send(renderIndexPage({
       opportunities,
+      resultStatusOptions: RESULT_STATUS_OPTIONS.map(option => ({
+        ...option,
+        selected: option.value === resultStatus
+      })),
       filterOptions: REGISTRATION_FILTERS,
       attachmentOptions: ATTACHMENT_MODES,
       logoBase64
