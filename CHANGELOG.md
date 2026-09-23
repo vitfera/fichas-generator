@@ -11,6 +11,18 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 ### Testes
 - Adicionada cobertura para leitura de anexos de múltiplas fases, deduplicação, arquivos remotos ausentes e mesclagem das páginas PDF.
 
+## [1.8.0] – 2026-09-23
+
+### Adicionado
+- Filtro de status do resultado na lista de oportunidades: Publicado (padrão), Não publicado e Todos.
+- Exportação de inscrições pendentes de avaliação (status 1), inclusive antes da publicação do resultado.
+
+### Corrigido
+- Volume de anexos do Docker usa o `FILES_DIR` de cada servidor, com origem configurável e montagem interna somente para leitura; mantém a origem padrão das instalações existentes.
+- Filtro de inscrições respeitado também quando a geração usa uma fase filha por não encontrar inscrições correspondentes na fase principal.
+- Rótulo do filtro de todas as inscrições esclarece que inclui as enviadas e exclui rascunhos.
+- Lista de arquivos gerados continua funcionando depois da geração de fichas, reutilizando corretamente os templates parciais compilados.
+
 ## [1.7.0] – 2026-07-21
 
 ### Alterado

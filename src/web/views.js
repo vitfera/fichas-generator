@@ -25,7 +25,7 @@ for (const file of fs.readdirSync(PARTIALS_DIR)) {
   if (!file.endsWith('.hbs')) continue;
   // generated-files-card.hbs → generatedFilesCard
   const name = path.basename(file, '.hbs').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-  handlebars.registerPartial(name, fs.readFileSync(path.join(PARTIALS_DIR, file), 'utf-8'));
+  handlebars.registerPartial(name, handlebars.compile(fs.readFileSync(path.join(PARTIALS_DIR, file), 'utf-8')));
 }
 
 const views = {
@@ -43,11 +43,11 @@ function renderPage(viewName, { title, logoBase64 = '', pageScript = '' }, data)
   }).trim();
 }
 
-function renderIndexPage({ opportunities, filterOptions, attachmentOptions, logoBase64 }) {
+function renderIndexPage({ opportunities, resultStatusOptions, filterOptions, attachmentOptions, logoBase64 }) {
   return renderPage(
     'index',
     { title: 'Gerar Fichas de Inscrição', logoBase64, pageScript: '/assets/js/index-page.js' },
-    { opportunities, filterOptions, attachmentOptions }
+    { opportunities, resultStatusOptions, filterOptions, attachmentOptions }
   );
 }
 
@@ -64,7 +64,7 @@ function renderResultPage({ opportunity, zipUrl, files, logoBase64 }) {
  */
 function renderGeneratedFilesList(files) {
   return handlebars.partials.generatedFilesList
-    ? handlebars.compile(handlebars.partials.generatedFilesList)({ files })
+    ? handlebars.partials.generatedFilesList({ files })
     : '';
 }
 
