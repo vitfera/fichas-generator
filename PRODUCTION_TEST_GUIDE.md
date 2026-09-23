@@ -77,10 +77,17 @@ docker compose exec fichas-generator node -e "const { Pool } = require('pg'); co
 
 ### Anexos Nao Encontrados
 
-Confira `FILES_DIR` e o volume no `docker-compose.yml`:
+Confira se `FILES_DIR` no `.env` aponta para a pasta correta nesse servidor.
+O Compose monta essa origem em `/data/registration` dentro do container:
 
 ```bash
-docker compose exec fichas-generator ls -la "$FILES_DIR"
+docker compose exec fichas-generator sh -c 'ls -ld "$FILES_DIR"'
+```
+
+Se o caminho mudou, recrie o container e gere novamente as fichas com anexos:
+
+```bash
+docker compose up -d --force-recreate fichas-generator
 ```
 
 ### Logo Incorreta

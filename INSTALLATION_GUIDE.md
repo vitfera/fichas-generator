@@ -46,7 +46,20 @@ O ambiente local precisa ter Chromium instalado e acessivel em `/usr/bin/chromiu
 
 ## Arquivos De Inscricao
 
-Para anexos funcionarem, `FILES_DIR` deve apontar para o diretorio onde o MAPAS armazena arquivos privados de inscricao. Em Docker, monte esse diretorio no container no mesmo caminho configurado.
+Configure `FILES_DIR` no `.env` com o caminho absoluto onde o MAPAS armazena as
+pastas das inscricoes nesse servidor. Esse caminho pode variar entre instalacoes;
+nao e necessario editar o `docker-compose.yml`.
+
+O Compose monta a pasta configurada em `/data/registration`, como somente leitura,
+e define `FILES_DIR` com esse caminho dentro do container. Na execucao local, o
+caminho do `.env` e usado diretamente. Se a variavel nao for informada, a origem
+padrao no host e `/srv/mapas/docker-data/private-files/registration`.
+
+Depois de alterar o caminho, aplique a nova montagem:
+
+```bash
+docker compose up -d --force-recreate fichas-generator
+```
 
 ## Verificacao
 
@@ -60,6 +73,6 @@ docker compose run --rm fichas-generator node --check generate_sheets.js
 ## Producao
 
 - Configure `OUTPUT_DIR` em volume persistente.
-- Monte `FILES_DIR` como somente leitura quando possivel.
+- O Compose monta automaticamente a origem de `FILES_DIR` como somente leitura.
 - Monitore CPU, memoria, disco e logs do PostgreSQL durante geracoes grandes.
 - Ajuste PostgreSQL conforme volume real de inscricoes.

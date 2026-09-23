@@ -43,6 +43,15 @@ FILES_DIR=/srv/mapas/docker-data/private-files/registration
 CHROMIUM_PATH=/usr/bin/chromium
 ```
 
+`FILES_DIR` deve apontar para o caminho absoluto da pasta de inscricoes no
+servidor, contendo as subpastas `<registration_id>/*.pdf`. Cada instalacao pode
+usar um caminho diferente. O Docker Compose monta essa origem automaticamente,
+como somente leitura, em `/data/registration` e configura esse caminho interno
+para a aplicacao. Quando `FILES_DIR` nao e informado, a origem padrao continua
+sendo `/srv/mapas/docker-data/private-files/registration`.
+
+Na execucao local, a aplicacao le diretamente o caminho definido em `FILES_DIR`.
+
 `CHROMIUM_PATH` e opcional e aponta para o executavel do Chromium usado na
 geracao dos PDFs. Quando nao informado, o sistema usa `/usr/bin/chromium`.
 
@@ -153,7 +162,15 @@ Verifique as variaveis `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` e `DB_NAME
 
 ### Anexos nao aparecem
 
-Confirme se `FILES_DIR` aponta para o diretorio correto dos arquivos privados de inscricao e se esse caminho esta montado no container quando necessario.
+Confirme se `FILES_DIR` no `.env` aponta para a pasta de inscricoes existente no
+servidor. Depois de alterar essa configuracao ou atualizar o volume do Compose,
+recrie o container para aplicar a montagem:
+
+```bash
+docker compose up -d --force-recreate fichas-generator
+```
+
+Os PDFs gerados antes da correcao precisam ser gerados novamente com **Ficha + anexos**.
 
 ### Logo nao aparece
 

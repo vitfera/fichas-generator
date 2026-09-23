@@ -9,6 +9,7 @@ Todas as alterações notáveis neste projeto estão documentadas neste arquivo.
 - Exportação de inscrições pendentes de avaliação (status 1), inclusive antes da publicação do resultado.
 
 ### Corrigido
+- Volume de anexos do Docker usa o `FILES_DIR` de cada servidor, com origem configurável e montagem interna somente para leitura; mantém a origem padrão das instalações existentes.
 - Filtro de inscrições respeitado também quando a geração usa uma fase filha por não encontrar inscrições correspondentes na fase principal.
 - Rótulo do filtro de todas as inscrições esclarece que inclui as enviadas e exclui rascunhos.
 - Lista de arquivos gerados continua funcionando depois da geração de fichas, reutilizando corretamente os templates parciais compilados.
